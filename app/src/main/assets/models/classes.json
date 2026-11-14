@@ -1,0 +1,9 @@
+{
+  "0": "pump",
+  "1": "motor",
+  "2": "valve",
+  "3": "pipe",
+  "4": "possible_leak",
+  "5": "possible_corrosion",
+  "6": "possible_overheat_mark"
+}

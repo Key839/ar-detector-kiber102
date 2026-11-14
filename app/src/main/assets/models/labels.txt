@@ -1,0 +1,7 @@
+pump
+motor
+valve
+pipe
+possible_leak
+possible_corrosion
+possible_overheat_mark
