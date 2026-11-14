@@ -1,22 +1,36 @@
-# AR DETECTOR / KST FIELD
+# AR DETECTOR — решение КИБЕР-102
 
-KIBER-102 prototype for preliminary visual inspection of industrial equipment.
+Мобильное Android-приложение для предварительного визуального осмотра промышленного оборудования от команды КСТ ЭНЕРГО ИНЖИНИРИНГ.
 
-## Runnable artifact
+## Что умеет приложение
 
-- Android debug APK: `app-debug.apk`
-- Catalog classes: pump, motor, valve, pipe
-- Local models: equipment detector and defect detector
-- Defect statuses: insufficient data, check recommended, possible defect
-- Roles: administrator and engineer can add/remove objects; guest has read-only access
+- Работает без сети после установки APK.
+- Распознаёт оборудование локальной ONNX-моделью.
+- Ищет признаки возможной утечки, коррозии и следа перегрева.
+- Показывает статус проверки и рекомендацию инженеру.
+- Сохраняет результаты осмотров в журнале.
+- Использует каталог из четырёх классов: насос, электродвигатель, клапан и трубопровод.
 
-## Presentation
+## Роли пользователей
 
-Open [AR_DETECTOR_KIBER102.pptx](./AR_DETECTOR_KIBER102.pptx).
+- Администратор и инженер могут добавлять и удалять объекты, редактировать карточки и просматривать журнал.
+- Гость может просматривать каталог и запускать анализ без изменения данных.
 
-## Demo accounts
+## Быстрый запуск
 
-- Administrator: `admin@kst-energo.ru` / `kiber102`
-- Engineer: `engineer@kst-energo.ru` / `kiber102`
+1. Установите файл `app-debug.apk` на Android-устройство.
+2. Откройте приложение и выберите гостевой режим или войдите в кабинет.
+3. Выберите объект, запустите локальный анализ и сохраните результат в журнал.
 
-The APK runs locally after installation and keeps the object catalog, models, and journal on the device.
+## Тестовые кабинеты
+
+- Администратор: `admin@kst-energo.ru` / `kiber102`
+- Инженер: `engineer@kst-energo.ru` / `kiber102`
+
+## Состав проекта
+
+- `app/` — исходный код Android-приложения.
+- `app/src/main/assets/models/` — модели оборудования и дефектов.
+- `app-debug.apk` — готовая отладочная сборка для демонстрации.
+
+Результат компьютерного зрения является предварительным. Финальное решение о наличии дефекта принимает инженер.
