@@ -73,10 +73,19 @@ class OnnxDetector(private val context: Context) {
     }
 
     fun detect(bitmap: Bitmap, threshold: Float = 0.45f): List<ModelDetection> {
-        val fullFrame = detectSingle(bitmap, threshold, session, labels)
+        val fullFrame = detectSingle(bitmap, threshold, session, labels).filter {
+            // The bundled seven-class checkpoint contains experimental leak
+            // and overheat labels. They are suppressed until their production
+            // data gate is met; corrosion remains a provisional signal.
+            it.label !in setOf("Возможная утечка", "След перегрева")
+        }
+        // Leak and overheat annotations are below the production gate in the
+        // current local data.  Keep them out of the APK result until a gated
+        // defect model is promoted; corrosion remains a provisional visual
+        // signal and still requires engineer confirmation.
         val auxiliaryDefects = defectSession?.let {
             detectSingle(bitmap, threshold.coerceAtLeast(0.65f), it, defectClassLabels)
-        }.orEmpty()
+        }.orEmpty().filter { it.label == "Возможная коррозия" }
         val frameArea = bitmap.width.toFloat() * bitmap.height.toFloat()
         fun areaRatio(item: ModelDetection): Float =
             ((item.x2 - item.x1).coerceAtLeast(0f) * (item.y2 - item.y1).coerceAtLeast(0f)) / frameArea.coerceAtLeast(1f)

@@ -67,5 +67,7 @@ dependencies {
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1")
     // ONNX Runtime Mobile runs the exported YOLO detector locally.
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // Bundled on-device OCR for equipment plates and inventory numbers.
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
 }

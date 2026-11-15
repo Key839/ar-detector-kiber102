@@ -19,9 +19,53 @@ private fun cropInspectionRegion(source: Bitmap): Bitmap {
     return Bitmap.createBitmap(source, left, top, cropWidth, cropHeight)
 }
 
+/** Maps a detected visual sign to the equipment nodes that must be checked.
+ * The mapping is guidance for the engineer; it never claims that a node is
+ * defective without the model box and a human confirmation.
+ */
+private fun defectComponents(label: String, type: String?): List<String> = when (label) {
+    "Возможная утечка" -> when (type) {
+        "pump" -> listOf("Торцевое уплотнение", "Фланцы", "Утечки")
+        "gearbox" -> listOf("Сальники", "Масляная ванна", "Утечки")
+        "fan" -> listOf("Кожух", "Ремень/муфта", "Утечки")
+        "valve" -> listOf("Сальник", "Фланцы", "Утечка")
+        "pipe" -> listOf("Фланцы", "Сварные швы", "Утечка")
+        "tank" -> listOf("Сварные швы", "Патрубки", "Утечки")
+        else -> listOf("Утечки", "Соединения")
+    }
+    "Возможная коррозия" -> when (type) {
+        "pump" -> listOf("Корпус", "Фланцы", "Ржавчина/коррозия")
+        "motor" -> listOf("Корпус", "Крепление", "Ржавчина/коррозия")
+        "gearbox" -> listOf("Корпус", "Сальники", "Ржавчина/коррозия")
+        "fan" -> listOf("Кожух", "Крепление", "Ржавчина/коррозия")
+        "valve" -> listOf("Корпус", "Фланцы", "Ржавчина/коррозия")
+        "pipe" -> listOf("Труба", "Сварные швы", "Ржавчина/коррозия")
+        "tank" -> listOf("Стенка корпуса", "Сварные швы", "Ржавчина/коррозия")
+        "control_cabinet" -> listOf("Корпус шкафа", "Кабельные вводы", "Ржавчина/коррозия")
+        "sensor" -> listOf("Корпус датчика", "Крепление", "Ржавчина/коррозия")
+        else -> listOf("Корпус", "Ржавчина/коррозия")
+    }
+    "След перегрева" -> when (type) {
+        "motor" -> listOf("Вентиляция", "Клеммная коробка", "След перегрева")
+        "pump" -> listOf("Электродвигатель", "Кабельная коробка", "След перегрева")
+        "gearbox" -> listOf("Масляная ванна", "Подшипники", "След перегрева")
+        "fan" -> listOf("Двигатель", "Вентиляция", "След перегрева")
+        "control_cabinet" -> listOf("Клеммная коробка", "Автоматы и защита", "След перегрева")
+        else -> listOf("Крепление", "След перегрева")
+    }
+    else -> emptyList()
+}
+
 enum class AppScreen { LOGIN, REGISTER, VERIFY, CATALOG, DETAIL, SCAN, RESULT, HISTORY, PROFILE, ADMIN }
 
-data class ArBoundingBox(val x1: Float, val y1: Float, val x2: Float, val y2: Float, val label: String, val status: String, val confidence: Float)
+data class ArBoundingBox(val x1: Float, val y1: Float, val x2: Float, val y2: Float, val label: String, val status: String, val confidence: Float, val affectedComponent: String? = null)
+data class RecognitionCandidate(
+    val equipment: EquipmentRecord,
+    val confidence: Float,
+    val detectedType: String,
+    val model: String? = null,
+    val matchReason: String = "Тип оборудования"
+)
 
 data class ArUiState(
     val screen: AppScreen = AppScreen.CATALOG,
@@ -58,6 +102,17 @@ data class ArUiState(
     val feedbackCount: Int = 0,
     val modelAvailable: Boolean = false,
     val previewBitmap: Bitmap? = null,
+    val recognitionCandidates: List<RecognitionCandidate> = emptyList(),
+    val recommendedStatus: String? = null,
+    val statusReason: String? = null,
+    val detectedType: String? = null,
+    val affectedComponents: List<String> = emptyList(),
+    val inspectionSaved: Boolean = false,
+    val ocrText: String = "",
+    val ocrConfidence: Float? = null,
+    val detectedPumpModel: String? = null,
+    val detectedAssetId: String? = null,
+    val inspectionDetails: InspectionDetails? = null,
 )
 
 class MainViewModel(application: Application) : AndroidViewModel(application) {
@@ -122,7 +177,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 store.cacheAuthenticatedUser(email, state.password, remote.name, remote.position, remote.role) ?: store.login(email, state.password)
             } else store.login(email, state.password)
             if (user == null) _uiState.update { it.copy(loginError = "Неверная почта или пароль") }
-            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, loginError = null, password = "", statusMessage = if (remote?.accepted == true) "Вход подтверждён, данные доступны офлайн" else "Локальный вход выполнен") } }
+            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, loginError = null, password = "", statusMessage = if (remote?.accepted == true) "Вход подтверждён" else "Локальный вход выполнен") } }
         }
     }
     fun register() {
@@ -149,7 +204,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             val user = store.register(email, state.password, name, state.position)
             if (user == null) _uiState.update { it.copy(loginError = "Пользователь с такой почтой уже существует") }
-            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, registration = false, loginError = null, statusMessage = "Личный кабинет создан офлайн") } }
+            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, registration = false, loginError = null, statusMessage = "Личный кабинет создан на устройстве") } }
         }
     }
     fun verifyRegistration() {
@@ -161,7 +216,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             if (!verified) { _uiState.update { it.copy(loginError = "Код неверный или срок его действия истёк") }; return@launch }
             val user = store.register(state.pendingEmail, state.password, state.pendingName, state.pendingPosition)
             if (user == null) _uiState.update { it.copy(loginError = "Пользователь уже сохранён на устройстве") }
-            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, registration = false, localVerificationCode = null, loginError = null, statusMessage = "Почта подтверждена, кабинет сохранён офлайн") } }
+            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, registration = false, localVerificationCode = null, loginError = null, statusMessage = "Почта подтверждена, кабинет сохранён") } }
         }
     }
     fun completeOfflineRegistration() {
@@ -169,7 +224,7 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val state = _uiState.value
             val user = store.register(state.pendingEmail.ifBlank { state.email.trim() }, state.password, state.pendingName.ifBlank { state.name.trim() }, state.pendingPosition)
             if (user == null) _uiState.update { it.copy(loginError = "Пользователь уже сохранён на устройстве") }
-            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, registration = false, loginError = null, statusMessage = "Офлайн-кабинет создан без подтверждения сети") } }
+            else { persistSession(user); _uiState.update { it.copy(user = user, screen = AppScreen.CATALOG, registration = false, loginError = null, statusMessage = "Кабинет создан на устройстве") } }
         }
     }
     fun logout() {
@@ -186,12 +241,13 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     fun openCatalog() = _uiState.update { it.copy(screen = AppScreen.CATALOG, equipment = store.equipment()) }
     fun openEquipmentDetails(item: EquipmentRecord) = _uiState.update { it.copy(screen = AppScreen.DETAIL, selectedEquipment = item, inspections = store.inspections(item.id)) }
-    fun startInspection() = _uiState.update { it.copy(screen = AppScreen.SCAN, selectedComponent = null) }
+    fun startInspection() = _uiState.update { it.copy(screen = AppScreen.SCAN, selectedEquipment = null, selectedComponent = null, recognitionCandidates = emptyList(), boxes = emptyList(), affectedComponents = emptyList(), previewBitmap = null, detectedType = null, ocrText = "", ocrConfidence = null, detectedPumpModel = null, detectedAssetId = null) }
     fun startComponentInspection(component: String) = _uiState.update {
         it.copy(
             screen = AppScreen.SCAN,
             selectedComponent = component,
             boxes = emptyList(),
+            affectedComponents = emptyList(),
             visualCategory = "INSUFFICIENT_DATA",
             summary = "Готов к проверке узла «$component»",
             recommendation = "Наведите камеру на выбранный узел и сделайте снимок",
@@ -199,6 +255,12 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         )
     }
     fun openHistory() = _uiState.update { it.copy(screen = AppScreen.HISTORY, allInspections = store.allInspections(), maintenance = store.maintenance()) }
+    fun openInspectionDetails(inspectionId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            _uiState.update { it.copy(inspectionDetails = store.inspectionDetails(inspectionId)) }
+        }
+    }
+    fun closeInspectionDetails() = _uiState.update { it.copy(inspectionDetails = null) }
     fun openProfile() = _uiState.update { it.copy(screen = AppScreen.PROFILE) }
     fun openAdmin() = _uiState.update { if (it.user?.role == "admin") it.copy(screen = AppScreen.ADMIN) else it }
     fun addEngineer(email: String, name: String, password: String) {
@@ -225,28 +287,167 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     fun backupDatabase() {
         viewModelScope.launch(Dispatchers.IO) {
             if (_uiState.value.user?.role != "admin") { _events.emit("Требуются права администратора"); return@launch }
-            val path = store.backupDatabase()
-            _events.emit(if (path == null) "Не удалось создать резервную копию" else "Резервная копия создана локально")
+            val path = store.backupDatabaseToDownloads()
+            _events.emit(if (path == null) "Не удалось создать резервную копию" else "Резервная копия сохранена в папке Загрузки/KST Energo: " + path.substringAfterLast('/'))
         }
     }
     fun exportFeedback() {
         viewModelScope.launch(Dispatchers.IO) {
             if (_uiState.value.user?.role != "admin") { _events.emit("Требуются права администратора"); return@launch }
-            val path = store.exportFeedback()
-            _events.emit(if (path == null) "Очередь обратной связи пуста или не выгружена" else "Обратная связь выгружена локально")
+            val path = store.exportFeedbackToDownloads()
+            _events.emit(if (path == null) "Очередь данных пуста или не выгружена" else "Данные сохранены в папке Загрузки/KST Energo: " + path.substringAfterLast('/'))
         }
     }
-    fun chooseEquipment(item: EquipmentRecord) = _uiState.update { it.copy(selectedEquipment = item, selectedComponent = null, screen = AppScreen.SCAN, boxes = emptyList(), inspections = store.inspections(item.id), visualCategory = "INSUFFICIENT_DATA", summary = "Готов к предварительному анализу: ${item.name}", recommendation = "Сделайте фото объекта в центре кадра и запустите анализ") }
+
+    fun deleteInspection(inspectionId: Long) {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.deleteInspection(inspectionId)) {
+                val current = _uiState.value
+                _uiState.update {
+                    it.copy(
+                        allInspections = store.allInspections(),
+                        inspections = it.selectedEquipment?.let { selected -> store.inspections(selected.id) }.orEmpty(),
+                        statusMessage = "Проверка удалена из журнала"
+                    )
+                }
+                _events.emit("Проверка №$inspectionId удалена")
+            } else _events.emit("Проверка не найдена")
+        }
+    }
+    fun chooseRecognitionCandidate(item: EquipmentRecord) = _uiState.update {
+        it.copy(
+            selectedEquipment = item,
+            selectedComponent = null,
+            screen = AppScreen.RESULT,
+            inspections = store.inspections(item.id),
+            recognitionCandidates = emptyList(),
+            summary = "Объект выбран: ${item.name}. Проверьте рекомендацию программы и паспорт.",
+            recommendation = "Подтвердите статус после визуальной проверки узлов."
+        )
+    }
+    fun createEquipmentFromRecognition(typeLabel: String, cover: Bitmap?) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) {
+            viewModelScope.launch { _events.emit("Войдите как инженер или администратор для добавления объекта") }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val displayType = when (typeLabel.lowercase()) {
+                "pump" -> "Насос"
+                "motor" -> "Электродвигатель"
+                "gearbox" -> "Редуктор"
+                "fan" -> "Вентилятор"
+                "valve" -> "Клапан / задвижка"
+                "pipe", "pipeline" -> "Трубопровод"
+                "tank" -> "Резервуар"
+                "control_cabinet" -> "Шкаф управления"
+                "sensor" -> "Датчик КИПиА"
+                else -> typeLabel.ifBlank { "Пользовательский объект" }
+            }
+            val id = store.addCustomEquipment("Новый объект — $displayType", displayType, "", "Не указано", "Параметры не заполнены", cover)
+            val item = store.equipment().firstOrNull { it.id == id }
+            _uiState.update { it.copy(equipment = store.equipment(), selectedEquipment = item, recognitionCandidates = emptyList(), screen = if (item == null) AppScreen.CATALOG else AppScreen.RESULT) }
+            _events.emit(if (item == null) "Не удалось создать объект" else "Новый объект создан из фотографии")
+        }
+    }
+    fun chooseEquipment(item: EquipmentRecord) = _uiState.update { it.copy(selectedEquipment = item, selectedComponent = null, screen = AppScreen.SCAN, boxes = emptyList(), affectedComponents = emptyList(), previewBitmap = null, inspections = store.inspections(item.id), visualCategory = "INSUFFICIENT_DATA", summary = "Готов к предварительному анализу: ${item.name}", recommendation = "Сделайте фото объекта в центре кадра и запустите анализ") }
     fun cameraCaptureFailed() { viewModelScope.launch { _events.emit("Не удалось получить кадр. Проверьте разрешение и повторите съёмку.") } }
-    fun backToCatalog() = _uiState.update { it.copy(screen = AppScreen.CATALOG, selectedEquipment = null, boxes = emptyList()) }
+    private fun refreshEquipmentSelection(id: String) {
+        val refreshed = store.equipment()
+        _uiState.update { current ->
+            current.copy(
+                equipment = refreshed,
+                selectedEquipment = refreshed.firstOrNull { it.id == id } ?: current.selectedEquipment,
+                inspections = current.selectedEquipment?.let { selected -> store.inspections(selected.id) } ?: current.inspections
+            )
+        }
+    }
+    fun addEquipmentPhoto(equipmentId: String, bitmap: Bitmap, replacePhotoId: Long? = null) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) {
+            viewModelScope.launch { _events.emit("Войдите как инженер или администратор для изменения фотографий") }
+            return
+        }
+        viewModelScope.launch(Dispatchers.IO) {
+            val saved = store.addEquipmentPhoto(equipmentId, bitmap, replacePhotoId = replacePhotoId)
+            if (saved == null) _events.emit("Можно хранить не более пяти фотографий объекта")
+            else { refreshEquipmentSelection(equipmentId); _events.emit("Фотография паспорта сохранена") }
+        }
+    }
+    fun deleteEquipmentPhoto(photoId: Long, equipmentId: String) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.deleteEquipmentPhoto(photoId)) { refreshEquipmentSelection(equipmentId); _events.emit("Фотография удалена") }
+        }
+    }
+    fun setPrimaryPhoto(photoId: Long, equipmentId: String) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.setPrimaryPhoto(photoId)) { refreshEquipmentSelection(equipmentId); _events.emit("Главная фотография обновлена") }
+        }
+    }
+    fun updateComponentStatus(componentId: String, equipmentId: String, status: String, comment: String = "") {
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.updateComponent(componentId, status, comment)) { refreshEquipmentSelection(equipmentId); _events.emit("Состояние узла сохранено") }
+        }
+    }
+    fun addCustomComponent(equipmentId: String, name: String) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.addComponent(equipmentId, name) != null) {
+                refreshEquipmentSelection(equipmentId); _events.emit("Пользовательский узел добавлен")
+            } else _events.emit("Введите название узла")
+        }
+    }
+    fun renameCustomComponent(componentId: String, equipmentId: String, name: String) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.renameComponent(componentId, name)) { refreshEquipmentSelection(equipmentId); _events.emit("Название узла изменено") }
+        }
+    }
+    fun deleteCustomComponent(componentId: String, equipmentId: String) {
+        if (_uiState.value.user?.role !in setOf("admin", "engineer")) return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.deleteComponent(componentId)) { refreshEquipmentSelection(equipmentId); _events.emit("Пользовательский узел удалён") }
+        }
+    }
+    fun applyRecommendedStatus() {
+        val state = _uiState.value
+        val item = state.selectedEquipment ?: return
+        val status = state.recommendedStatus ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            if (store.applyRecommendedStatus(item.id, status)) {
+                val savedId = if (state.inspectionSaved) null else saveInspectionBundle(state, item)
+                refreshEquipmentSelection(item.id)
+                _uiState.update { current -> current.copy(statusMessage = if (state.inspectionSaved || savedId != null) "Статус принят, акт сохранён" else "Статус принят; акт не удалось сохранить", inspectionSaved = state.inspectionSaved || savedId != null, inspections = store.inspections(item.id), allInspections = store.allInspections(), feedbackCount = store.feedbackCount()) }
+                _events.emit("Статус объекта обновлён")
+            }
+        }
+    }
+    /** Keep the passport status unchanged but save the inspection and the
+     * engineer's decision alongside the model recommendation. */
+    fun keepCurrentStatus() {
+        val state = _uiState.value
+        val item = state.selectedEquipment ?: return
+        if (state.isSaving || state.inspectionSaved) return
+        _uiState.update { it.copy(isSaving = true) }
+        viewModelScope.launch(Dispatchers.IO) {
+            val savedId = saveInspectionBundle(state, item)
+            _uiState.update { current -> current.copy(isSaving = false, inspectionSaved = savedId != null, inspections = store.inspections(item.id), allInspections = store.allInspections(), feedbackCount = store.feedbackCount(), statusMessage = if (savedId != null) "Текущий статус оставлен, акт сохранён" else "Не удалось сохранить акт") }
+            _events.emit(if (savedId != null) "Решение сохранено без изменения статуса" else "Ошибка локальной базы. Акт не сохранён.")
+        }
+    }
+    fun editPassportAndStatus() {
+        val item = _uiState.value.selectedEquipment ?: return
+        _uiState.update { it.copy(screen = AppScreen.DETAIL, inspections = store.inspections(item.id)) }
+    }
+    fun backToCatalog() = _uiState.update { it.copy(screen = AppScreen.CATALOG, selectedEquipment = null, boxes = emptyList(), affectedComponents = emptyList(), previewBitmap = null, detectedType = null) }
     fun addCustomEquipment(name: String, type: String, tag: String, location: String, specs: String, cover: Bitmap? = null) {
-        if (name.isBlank() || tag.isBlank()) return
+        if (type.isBlank()) return
         if (_uiState.value.user?.role !in setOf("admin", "engineer")) {
             viewModelScope.launch { _events.emit("Войдите как инженер или администратор для изменения каталога") }
             return
         }
         viewModelScope.launch(Dispatchers.IO) {
-            store.addCustomEquipment(name.trim(), type.trim().ifBlank { "Пользовательский объект" }, tag.trim(), location.trim().ifBlank { "Не указано" }, specs.trim().ifBlank { "Параметры не заполнены" }, cover)
+            store.addCustomEquipment(name.trim().ifBlank { "Новый объект — ${type.trim()}" }, type.trim(), tag.trim(), location.trim().ifBlank { "Не указано" }, specs.trim().ifBlank { "Параметры не заполнены" }, cover)
             _uiState.update { it.copy(equipment = store.equipment(), statusMessage = "Объект добавлен в локальный каталог") }
             _events.emit("Пользовательский объект сохранён")
         }
@@ -256,12 +457,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             viewModelScope.launch { _events.emit("Войдите как инженер или администратор для изменения каталога") }
             return
         }
-        if (name.isBlank() || tag.isBlank()) {
-            viewModelScope.launch { _events.emit("Название и инвентарный номер обязательны") }
-            return
-        }
+        val current = _uiState.value.equipment.firstOrNull { it.id == id }
+        val safeName = name.trim().ifBlank { "Новый объект — " + (current?.typeLabel ?: "оборудование") }
+        val safeTag = tag.trim().ifBlank { "LOCAL-" + System.currentTimeMillis() }
         viewModelScope.launch(Dispatchers.IO) {
-            if (store.updateEquipment(id, name, tag, location, specs, status)) {
+            if (store.updateEquipment(id, safeName, safeTag, location.trim().ifBlank { "Не указано" }, specs.trim().ifBlank { "Параметры не заполнены" }, status)) {
                 val refreshed = store.equipment()
                 _uiState.update { current ->
                     current.copy(
@@ -289,8 +489,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
         }
     }
     fun analyzeOffline(imageBytes: ByteArray, width: Int, height: Int) {
-        val selected = _uiState.value.selectedEquipment ?: return
         if (_uiState.value.isLoading) return
+        val selected = _uiState.value.selectedEquipment
         viewModelScope.launch(Dispatchers.Default) {
             _uiState.update { it.copy(isLoading = true, statusMessage = "Локальный анализ изображения…") }
             val sourceBitmap = runCatching { BitmapFactory.decodeByteArray(imageBytes, 0, imageBytes.size) }.getOrNull()
@@ -298,6 +498,9 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             val analysisWidth = bitmap?.width ?: width.coerceAtLeast(1)
             val analysisHeight = bitmap?.height ?: height.coerceAtLeast(1)
             val usableFrame = bitmap?.let(detector::isUsableFrame) == true
+            val ocr = if (bitmap != null) {
+                try { readEquipmentPlate(bitmap) } catch (_: Exception) { OcrReading() }
+            } else OcrReading()
             val inference = if (usableFrame && detector.isAvailable()) runCatching { detector.detect(bitmap!!) } else Result.success(emptyList())
             val detections = inference.getOrDefault(emptyList())
             val defectLabels = setOf("Возможная утечка", "Возможная коррозия", "След перегрева")
@@ -317,16 +520,17 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "valve" to "Клапан / задвижка",
                 "tank" to "Резервуар",
                 "pipe" to "Трубопровод",
+                "pipeline" to "Трубопровод",
                 "control_cabinet" to "Шкаф управления",
                 "sensor" to "Датчик КИПиА",
                 "custom" to "Пользовательский объект"
             )
-            val selectedIsSupported = selected.type in supportedTypes.keys
+            val selectedIsSupported = selected?.type in supportedTypes.keys
             val specializedModelTypes = setOf("pump", "motor", "valve", "pipe")
-            val hasSpecializedModel = selected.type in specializedModelTypes
-            val expectedLabel = supportedTypes[selected.type]
+            val hasSpecializedModel = selected?.type in specializedModelTypes
+            val expectedLabel = selected?.type?.let { supportedTypes[it] }
             val rawMatchingEquipmentDetection = equipmentDetections.firstOrNull { detection ->
-                expectedLabel?.let { expected -> detection.label == expected || (selected.type == "valve" && detection.label == "Клапан / задвижка") } == true
+                expectedLabel?.let { expected -> detection.label == expected || (selected?.type == "valve" && detection.label == "Клапан / задвижка") } == true
             }
             val matchingEquipmentDetection = rawMatchingEquipmentDetection?.takeIf { detection ->
                 val area = (detection.x2 - detection.x1).coerceAtLeast(0f) * (detection.y2 - detection.y1).coerceAtLeast(0f)
@@ -344,7 +548,29 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
             }
             // Prefer the selected catalog class when several objects are visible in one frame.
             // A secondary class must not turn a correctly framed pump into a false mismatch.
-            val equipmentDetection = matchingEquipmentDetection
+            val bestEquipmentDetection = equipmentDetections
+                .filter { detection -> areaRatio(detection) in 0.04f..0.78f && detection.confidence >= 0.45f }
+                .maxByOrNull { it.confidence }
+            val equipmentDetection = matchingEquipmentDetection ?: if (selected == null) bestEquipmentDetection else null
+            val detectedTypeKey = equipmentDetection?.label?.let { label ->
+                supportedTypes.entries.firstOrNull { it.value == label }?.key
+                    ?: if (label == "Клапан / задвижка") "valve" else null
+            }
+            val normalizedOcr = ocr.normalizedText
+            fun ocrMatches(item: EquipmentRecord): Boolean {
+                if (normalizedOcr.isBlank()) return false
+                val values = listOf(item.id, item.name, item.model, item.tag, item.serial, item.location)
+                return values.any { value ->
+                    val normalized = value.uppercase().replace('О', 'O').replace('Р', 'P').replace('А', 'A').replace('В', 'B').replace('С', 'C').replace('Т', 'T').replace('Х', 'X')
+                    normalized.isNotBlank() && normalizedOcr.contains(normalized, ignoreCase = true)
+                }
+            }
+            val ocrMatches = store.equipment().filter { ocrMatches(it) }
+            val candidates = if (selected == null && detectedTypeKey != null) {
+                val pool = if (ocrMatches.isNotEmpty()) ocrMatches else store.equipment().filter { it.type == detectedTypeKey }
+                pool.map { item -> RecognitionCandidate(item, if (ocrMatches.contains(item)) .98f else (equipmentDetection?.confidence ?: 0f), detectedTypeKey, ocr.model, if (ocrMatches.contains(item)) "Совпадение номера или модели" else "Совпадение типа") }
+            } else emptyList()
+            val detectedAsset = ocrMatches.firstOrNull()?.id
             // A broad class prediction is useful for guidance but must not be
             // presented as a localized AR box. Only a compact matching box is
             // treated as a confirmed object location.
@@ -364,7 +590,8 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 bitmap == null || !usableFrame -> "INSUFFICIENT_DATA"
                 localizedDefect != null -> "POSSIBLE_DEFECT"
                 defect != null -> "POSSIBLE_DEFECT"
-                !selectedIsSupported -> "INSUFFICIENT_DATA"
+                selected == null && equipmentDetection == null -> "INSUFFICIENT_DATA"
+                selected != null && !selectedIsSupported -> "INSUFFICIENT_DATA"
                 !hasSpecializedModel -> "CHECK_RECOMMENDED"
                 selectedTypeMatches -> "CHECK_RECOMMENDED"
                 else -> "INSUFFICIENT_DATA"
@@ -400,11 +627,11 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 "Модель обнаружила: " + localizedDefect.label + ". " + (defectExplanation ?: "Проверьте выделенную область вручную.")
             } else if (defect != null) {
                 "Модель обнаружила признак возможного дефекта: " + defect.label + "."
-            } else if (detectedObjects.isNotBlank() && !selectedTypeMatches) {
+            } else if (selected == null && detectedObjects.isNotBlank()) {
                 "В кадре найдены объекты: " + detectedObjects + ". Выберите нужный объект в каталоге."
-            } else if (!selectedIsSupported) {
+            } else if (selected != null && !selectedIsSupported) {
                 "Тип оборудования не найден в каталоге."
-            } else if (!hasSpecializedModel) {
+            } else if (selected != null && !hasSpecializedModel) {
                 "Для «" + selected.typeLabel + "» включён универсальный режим: автоматическая фиксация кадра и ручной чек-лист."
             } else if (rawMatchingEquipmentDetection != null && matchingEquipmentDetection == null) {
                 "Класс объекта распознан, но точная рамка не подтверждена датасетом. Проверьте объект вручную."
@@ -422,49 +649,77 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
                 defect != null && localizedDefect == null -> "Проверьте объект целиком вручную: текущий датасет не содержит точной рамки этого дефекта."
                 localizedDefect != null -> defectRecommendation ?: "Проверьте выделенную область и подтвердите результат инженером."
                 defect != null -> "Проверьте выделенную область и подтвердите результат инженером."
+                selected == null -> "Выберите найденный объект в каталоге или создайте новый паспорт."
                 !selectedIsSupported -> "Выберите объект из каталога или добавьте его через кабинет администратора."
                 !hasSpecializedModel -> "Проверьте компоненты по чек-листу и сохраните результат инженера."
                 equipmentDetection == null -> "Повторите кадрирование, улучшите освещение или подтвердите объект вручную."
                 !selectedTypeMatches -> "Проверьте выбранный объект, затем повторите кадрирование."
                 else -> "Выполните визуальную проверку, подтвердите статус инженером и сохраните акт."
             }
-            val boxes = visibleDetections.map { detection -> ArBoundingBox(detection.x1, detection.y1, detection.x2, detection.y2, detection.label, if (detection.label in defectLabels) "POSSIBLE_DEFECT" else "CHECK_RECOMMENDED", detection.confidence) }.toMutableList()
+            val boxes = buildList {
+                equipmentDetection?.let { detection -> add(ArBoundingBox(detection.x1, detection.y1, detection.x2, detection.y2, detection.label, "CHECK_RECOMMENDED", detection.confidence)) }
+                visibleDetections.filter { it.label in defectLabels }.distinctBy { it.label }.forEach { detection ->
+                    val equipmentType = selected?.type ?: detectedTypeKey
+                    add(ArBoundingBox(detection.x1, detection.y1, detection.x2, detection.y2, detection.label, "POSSIBLE_DEFECT", detection.confidence, defectComponents(detection.label, equipmentType).firstOrNull()))
+                }
+            }
+            val affectedComponents = visibleDetections.filter { it.label in defectLabels }.distinctBy { it.label }.flatMap { defectComponents(it.label, selected?.type ?: detectedTypeKey) }.distinct()
+            // A model finding is a recommendation for the engineer. Persist it as
+            // “Требует проверки” on the selected object's matching nodes, while
+            // preserving a previously confirmed NORMAL/DEFECT decision.
+            if (selected != null && affectedComponents.isNotEmpty()) {
+                selected.componentRecords
+                    .filter { it.name in affectedComponents && it.status == "UNKNOWN" }
+                    .forEach { component ->
+                        store.updateComponent(component.id, "CHECK_RECOMMENDED", "Рекомендовано моделью по результату анализа")
+                    }
+            }
+            val refreshedSelected = selected?.id?.let { id -> store.equipment().firstOrNull { it.id == id } }
             val resultWidth = analysisWidth
             val resultHeight = analysisHeight
-            _uiState.update { it.copy(screen = AppScreen.RESULT, isLoading = false, statusMessage = if (matchingEquipmentDetection != null) "Точная рамка объекта получена; узлы подтверждаются по чек-листу" else if (rawMatchingEquipmentDetection != null) "Класс объекта найден, но точная рамка не подтверждена" else if (detector.isAvailable()) "Модель не подтвердила выбранный тип объекта" else "Недостаточно данных для автоматической оценки", visualCategory = category, predictedCategory = category, confidence = confidence, summary = summary, recommendation = recommendation, boxes = boxes, previewBitmap = bitmap, sourceImageWidth = resultWidth, sourceImageHeight = resultHeight) }
+            val suggestedStatus = when {
+                localizedDefect?.label == "След перегрева" && localizedDefect.confidence >= 0.85f -> "CRITICAL"
+                localizedDefect?.label == "Возможная утечка" && localizedDefect.confidence >= 0.85f -> "CRITICAL"
+                localizedDefect != null || defect != null -> "CHECK_RECOMMENDED"
+                else -> "CHECK_RECOMMENDED"
+            }
+            val modelSummary = ocr.model?.let { " Визуальная модель по шильдику: $it." } ?: ""
+            _uiState.update { it.copy(screen = AppScreen.RESULT, isLoading = false, statusMessage = if (equipmentDetection != null) "Тип объекта распознан; проверьте выделенные узлы" else "Недостаточно данных для автоматической оценки", selectedEquipment = refreshedSelected ?: it.selectedEquipment, inspections = refreshedSelected?.let { item -> store.inspections(item.id) } ?: it.inspections, visualCategory = category, predictedCategory = category, confidence = confidence, summary = summary + modelSummary, recommendation = recommendation, boxes = boxes, previewBitmap = bitmap, sourceImageWidth = resultWidth, sourceImageHeight = resultHeight, recognitionCandidates = candidates, detectedType = detectedTypeKey, affectedComponents = affectedComponents, recommendedStatus = suggestedStatus, statusReason = localizedDefect?.label ?: "Требуется подтверждение инженера", ocrText = ocr.rawText, ocrConfidence = ocr.confidence.takeIf { it > 0f }, detectedPumpModel = ocr.model, detectedAssetId = detectedAsset) }
         }
     }
     fun confirmVisualStatus(category: String) {
         val actor = if (_uiState.value.user == null) "Пользователь" else "Инженер"
         val summary = when (category) { "NO_VISIBLE_PROBLEM" -> "$actor подтвердил: видимых проблем не обнаружено"; "POSSIBLE_DEFECT" -> "$actor зафиксировал признаки возможного дефекта"; else -> "$actor отметил необходимость дополнительной проверки" }
         val recommendation = when (category) { "NO_VISIBLE_PROBLEM" -> "Продолжить эксплуатацию и повторить проверку по регламенту"; "POSSIBLE_DEFECT" -> "Проверить компонент и выполнить необходимые работы"; else -> "Запланировать дополнительную проверку компонента" }
-        _uiState.update { it.copy(visualCategory = category, summary = summary, recommendation = recommendation) }
+        val acceptedStatus = when (category) {
+            "NO_VISIBLE_PROBLEM" -> "NORMAL"
+            "POSSIBLE_DEFECT" -> "CRITICAL"
+            else -> "CHECK_RECOMMENDED"
+        }
+        _uiState.update { it.copy(visualCategory = category, summary = summary, recommendation = recommendation, recommendedStatus = acceptedStatus, statusReason = "Решение подтверждено пользователем", inspectionSaved = false) }
+    }
+    private fun saveInspectionBundle(state: ArUiState, item: EquipmentRecord): Long? {
+        val user = state.user
+        val inspectionId = runCatching { store.saveInspection(item.id, user?.id, state.visualCategory, state.confidence, state.summary, state.recommendation, state.previewBitmap, state.recommendedStatus ?: "OPEN") }.getOrNull() ?: return null
+        runCatching {
+            store.saveFeedback(inspectionId, item.id, user?.id, state.predictedCategory ?: state.visualCategory, state.visualCategory, state.selectedComponent, if (user == null) "Подтверждено пользователем" else "Подтверждено инженером")
+            item.componentRecords.filter { it.name in state.affectedComponents || it.name == state.selectedComponent }.forEach { component ->
+                store.saveComponentInspection(inspectionId, component.id, item.id, component.status, component.comment)
+            }
+        }
+        return inspectionId
     }
     fun saveInspection() {
         val state = _uiState.value; val item = state.selectedEquipment ?: return; val user = state.user
-        if (state.isSaving) return
+        if (state.isSaving || state.inspectionSaved) return
         _uiState.update { it.copy(isSaving = true) }
         viewModelScope.launch(Dispatchers.IO) {
-            val inspectionId = runCatching { store.saveInspection(item.id, user?.id, state.visualCategory, state.confidence, state.summary, state.recommendation, state.previewBitmap) }.getOrNull()
+            val inspectionId = saveInspectionBundle(state, item)
             val saved = inspectionId != null
-            if (inspectionId != null) {
-                // Keep the model's output and the engineer's final confirmation
-                // together for a later, controlled retraining export.
-                runCatching {
-                    store.saveFeedback(
-                        inspectionId = inspectionId,
-                        equipmentId = item.id,
-                        userId = user?.id,
-                        predictedCategory = state.predictedCategory ?: state.visualCategory,
-                        correctedCategory = state.visualCategory,
-                        component = state.selectedComponent,
-                        comment = if (user == null) "Подтверждено пользователем в гостевом режиме" else "Подтверждено инженером в акте осмотра"
-                    )
-                }
-            }
             _uiState.update {
                 it.copy(
                     isSaving = false,
+                    inspectionSaved = saved,
                     statusMessage = if (saved) "Сохранено в локальную историю" else "Не удалось сохранить акт",
                     inspections = if (saved) store.inspections(item.id) else it.inspections,
                     allInspections = if (saved) store.allInspections() else it.allInspections

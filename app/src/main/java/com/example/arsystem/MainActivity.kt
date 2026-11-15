@@ -60,6 +60,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.core.view.WindowCompat
 import com.example.arsystem.ui.theme.ArsystemTheme
@@ -139,7 +140,7 @@ private fun VerifyScreen(state: ArUiState, vm: MainViewModel) {
         Text("ПОДТВЕРЖДЕНИЕ ПОЧТЫ", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.2.sp)
         Spacer(Modifier.height(10.dp)); Text("Проверьте рабочую почту", fontSize = 28.sp, fontWeight = FontWeight.Bold)
         val localMode = state.localVerificationCode != null && (state.statusMessage?.contains("локаль", ignoreCase = true) == true || state.statusMessage?.contains("SMTP", ignoreCase = true) == true)
-        Text(if (localMode) "SMTP пока не настроен. Для офлайн-демо используйте код ниже." else "Шестизначный код отправлен на " + state.pendingEmail + ". После подтверждения кабинет будет доступен и без сети.", color = Muted, fontSize = 14.sp)
+        Text(if (localMode) "SMTP пока не настроен. Для демонстрации используйте код ниже." else "Шестизначный код отправлен на " + state.pendingEmail + ". После подтверждения кабинет будет доступен на устройстве.", color = Muted, fontSize = 14.sp)
         Spacer(Modifier.height(20.dp))
         OtpFields(state.verificationCode, vm::updateVerificationCode)
         state.localVerificationCode?.let { Text(if (localMode) "Локальный demo-код: $it" else "Резервный код устройства: $it", color = Warning, fontSize = 12.sp, modifier = Modifier.padding(top = 8.dp)) }
@@ -239,16 +240,24 @@ private fun CatalogScreen(state: ArUiState, vm: MainViewModel) {
     val attentionCount = state.equipment.count { it.status == "CHECK_RECOMMENDED" || it.status == "CRITICAL" }
     val serviceSoonCount = state.equipment.count { it.status == "SERVICE_SOON" || it.status == "SERVICE_DUE" }
     Column(Modifier.fillMaxSize().background(Bg)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-            Column { Text("AR DETECTOR", color = Primary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp); Text("Объекты", fontSize = 28.sp, fontWeight = FontWeight.Bold) }
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                if (state.user?.role in setOf("admin", "engineer")) TextButton(onClick = { showAdd = true }) { Text("Добавить объект") }
+        Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Text("AR DETECTOR", color = Primary, fontSize = 11.sp, fontWeight = FontWeight.Bold, letterSpacing = 1.4.sp)
+            Text("Объекты", fontSize = 28.sp, fontWeight = FontWeight.Bold, maxLines = 1)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Button(onClick = vm::startInspection, modifier = Modifier.weight(1f).height(44.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), shape = RoundedCornerShape(10.dp)) {
+                    Text("Распознать объект", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                }
+                if (state.user?.role in setOf("admin", "engineer")) {
+                    OutlinedButton(onClick = { showAdd = true }, modifier = Modifier.weight(1f).height(44.dp), contentPadding = PaddingValues(horizontal = 8.dp, vertical = 0.dp), shape = RoundedCornerShape(10.dp)) {
+                        Text("Добавить объект", maxLines = 1, softWrap = false, overflow = TextOverflow.Ellipsis, fontSize = 12.sp)
+                    }
+                }
             }
         }
         Row(Modifier.padding(horizontal = 20.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Box(Modifier.size(8.dp).clip(RoundedCornerShape(50)).background(Green))
-            Text("${state.user?.name ?: "Гостевой режим"}", color = Color.White, fontSize = 13.sp)
-            Text(if (state.user == null) "БЕЗ ВХОДА" else "ОФЛАЙН", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            Text("${state.user?.name ?: "Гостевой режим"}", color = Color.White, fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+            Text(if (state.user == null) "БЕЗ ВХОДА" else "АКТИВЕН", color = Green, fontSize = 11.sp, fontWeight = FontWeight.Bold)
         }
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 16.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             MetricCard("Всего", state.equipment.size.toString(), Primary, Modifier.weight(1f))
@@ -257,7 +266,7 @@ private fun CatalogScreen(state: ArUiState, vm: MainViewModel) {
         }
         OutlinedTextField(query, { query = it }, label = { Text("Поиск по названию, тегу, месту") }, singleLine = true, modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 2.dp))
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            types.forEach { type -> FilterChip(selected = selectedType == type, onClick = { selectedType = type }, label = { Text(type, maxLines = 1) }) }
+            types.forEach { type -> FilterChip(selected = selectedType == type, onClick = { selectedType = type }, label = { Text(type, maxLines = 1, overflow = TextOverflow.Ellipsis) }) }
         }
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             items(filtered, key = { it.id }) { item -> EquipmentRow(item) { vm.openEquipmentDetails(item) } }
@@ -352,9 +361,10 @@ private fun NavGlyph(kind: NavGlyphKind) {
 @Composable
 private fun HistoryScreen(state: ArUiState, vm: MainViewModel) {
     var filter by remember { mutableStateOf("Все") }
+    var deletingInspection by remember { mutableStateOf<InspectionRecord?>(null) }
     val filteredInspections = state.allInspections.filter { filter == "Все" || categoryLabel(it.category) == filter }
     Column(Modifier.fillMaxSize().background(Bg)) {
-        ScreenHeader("Журнал и обслуживание", "Все локальные акты и контроль сроков", vm::openCatalog)
+        ScreenHeader("Журнал проверок", "Результаты осмотров и контроль сроков", vm::openCatalog)
         LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item { Text("Ближайшие работы", color = Primary, fontWeight = FontWeight.Bold, fontSize = 13.sp); Spacer(Modifier.height(6.dp)) }
             items(state.maintenance.take(6), key = { "m-" + it.equipmentId }) { item ->
@@ -377,24 +387,75 @@ private fun HistoryScreen(state: ArUiState, vm: MainViewModel) {
                 }
             }
             if (filteredInspections.isEmpty()) item { EmptyState(if (state.allInspections.isEmpty()) "Сохранённых проверок пока нет" else "По выбранному фильтру записей нет") }
-            items(filteredInspections, key = { it.id }) { inspection -> InspectionRow(inspection) }
+            items(filteredInspections, key = { it.id }) { inspection -> InspectionRow(inspection, vm, { vm.openInspectionDetails(inspection.id) }, { deletingInspection = inspection }) }
         }
         BottomNav(state, vm)
+    }
+    state.inspectionDetails?.let { details -> InspectionDetailsDialog(details) { vm.closeInspectionDetails() } }
+    deletingInspection?.let { inspection ->
+        AlertDialog(
+            onDismissRequest = { deletingInspection = null },
+            title = { Text("Удалить акт?") },
+            text = { Text("Акт №${inspection.id} будет удалён из журнала вместе с прикреплённым кадром.") },
+            confirmButton = { Button(onClick = { vm.deleteInspection(inspection.id); deletingInspection = null }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { deletingInspection = null }) { Text("Отмена") } }
+        )
     }
 }
 
 @Composable
-private fun InspectionRow(item: InspectionRecord) {
-    Surface(color = SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+private fun InspectionRow(item: InspectionRecord, vm: MainViewModel? = null, onOpen: (() -> Unit)? = null, onDelete: (() -> Unit)? = null) {
+    Surface(color = SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().clickable(enabled = onOpen != null) { onOpen?.invoke() }) {
         Row(Modifier.padding(14.dp), horizontalArrangement = Arrangement.spacedBy(10.dp), verticalAlignment = Alignment.Top) {
             val preview = remember(item.imagePath) { item.imagePath?.let { path -> runCatching { android.graphics.BitmapFactory.decodeFile(path) }.getOrNull() } }
             if (preview != null) Image(bitmap = preview.asImageBitmap(), contentDescription = "Сохранённый кадр", modifier = Modifier.size(62.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(item.equipmentName.ifBlank { item.equipmentId }, fontWeight = FontWeight.SemiBold, modifier = Modifier.weight(1f)); Text(categoryLabel(item.category), color = statusColor(item.category), fontSize = 10.sp, fontWeight = FontWeight.Bold) }
-                Text(item.summary, color = Color.White, fontSize = 13.sp); Text(item.recommendation, color = Muted, fontSize = 12.sp); Text(item.createdAt, color = Muted, fontSize = 10.sp)
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
+                    Column(Modifier.weight(1f)) { Text(item.equipmentName.ifBlank { item.equipmentId }, fontWeight = FontWeight.SemiBold); Text("ID акта: ${item.id} • Объект: ${item.equipmentId}", color = Muted, fontSize = 10.sp) }
+                    Text(categoryLabel(item.category), color = statusColor(item.category), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                }
+                Text(item.summary, color = Color.White, fontSize = 13.sp); Text(item.recommendation, color = Muted, fontSize = 12.sp); Text("Дата: ${item.createdAt}", color = Muted, fontSize = 10.sp)
+                if (onOpen != null || onDelete != null) {
+                    Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                        onOpen?.let { TextButton(onClick = it) { Text("Открыть акт", color = Primary, fontSize = 11.sp) } }
+                        onDelete?.let { TextButton(onClick = it) { Text("Удалить", color = Red, fontSize = 11.sp) } }
+                    }
+                }
             }
         }
     }
+}
+
+@Composable
+private fun InspectionDetailsDialog(details: InspectionDetails, onDismiss: () -> Unit) {
+    val item = details.inspection
+    val preview = remember(item.imagePath) { item.imagePath?.let { path -> runCatching { android.graphics.BitmapFactory.decodeFile(path) }.getOrNull() } }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text("Акт осмотра №${item.id}") },
+        text = {
+            Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("Объект: ${item.equipmentName.ifBlank { item.equipmentId }}", fontWeight = FontWeight.SemiBold)
+                Text("Номер объекта: ${item.equipmentId}", color = Muted, fontSize = 12.sp)
+                Text("Дата: ${item.createdAt}", color = Muted, fontSize = 12.sp)
+                Text("Статус: ${categoryLabel(item.category)}", color = statusColor(item.category), fontWeight = FontWeight.Bold)
+                preview?.let { Image(bitmap = it.asImageBitmap(), contentDescription = "Кадр осмотра", modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit) }
+                Text("Результат", color = Primary, fontWeight = FontWeight.Bold)
+                Text(item.summary, color = Color.White, fontSize = 13.sp)
+                Text("Рекомендация", color = Primary, fontWeight = FontWeight.Bold)
+                Text(item.recommendation, color = Muted, fontSize = 13.sp)
+                item.confidence?.let { Text("Уверенность модели: ${(it * 100).toInt()}%", color = Muted, fontSize = 12.sp) }
+                if (item.status.isNotBlank()) Text("Решение: ${statusLabel(item.status)}", color = statusColor(item.status), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                if (details.components.isNotEmpty()) {
+                    Text("Узлы", color = Primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    details.components.forEach { component ->
+                        Text("• ${component.componentName.ifBlank { component.componentId }}: ${component.status}${component.comment.takeIf { it.isNotBlank() }?.let { " — $it" } ?: ""}", color = Color.White, fontSize = 12.sp)
+                    }
+                } else Text("Компонентные результаты в этом акте не записаны.", color = Muted, fontSize = 11.sp)
+            }
+        },
+        confirmButton = { TextButton(onClick = onDismiss) { Text("Закрыть") } }
+    )
 }
 
 @Composable
@@ -403,10 +464,10 @@ private fun ProfileScreen(state: ArUiState, vm: MainViewModel) {
         ScreenHeader("Профиль", if (state.user == null) "Гостевой режим" else "Локальный кабинет", vm::openCatalog)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Surface(color = SurfaceRaised, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(18.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) { Text(state.user?.name ?: "Гостевой пользователь", fontSize = 21.sp, fontWeight = FontWeight.Bold); Text(state.user?.email ?: "Вход не выполнен", color = Muted); Text(state.user?.position ?: "Каталог и анализ доступны без аккаунта", color = Primary, fontWeight = FontWeight.SemiBold) } }
-            InfoLine("Состояние", "Офлайн-база активна", Green)
+            InfoLine("Состояние", "Данные доступны на устройстве", Green)
             InfoLine("Объектов в каталоге", state.equipment.size.toString(), Color.White)
             InfoLine("Сохранено актов", state.allInspections.size.toString(), Color.White)
-            Text("Все фотографии и результаты остаются в памяти телефона. Синхронизация с сервером может быть добавлена при подключении к сети.", color = Muted, fontSize = 12.sp)
+            Text("Фотографии, паспорта и результаты сохраняются на этом устройстве.", color = Muted, fontSize = 12.sp)
             if (state.user == null) {
                 OutlinedButton(onClick = vm::openLogin, modifier = Modifier.fillMaxWidth().height(50.dp)) { Text("Войти как инженер или администратор") }
             }
@@ -433,12 +494,10 @@ private fun AdminScreen(state: ArUiState, vm: MainViewModel) {
         ScreenHeader("Администрирование", "Каталог, пользователи и контроль данных", vm::openCatalog)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             AdminMetric("Оборудование", state.equipment.size.toString(), "типов: " + state.equipment.map { it.typeLabel }.distinct().size)
-            AdminMetric("Акты проверок", state.allInspections.size.toString(), "хранятся локально")
-            AdminMetric("Обратная связь", state.feedbackCount.toString(), "примеры для следующего обучения")
-            AdminMetric("Модель CV", "YOLO11n", if (state.modelAvailable) "ONNX Runtime Mobile • загружена" else "Модель недоступна")
-            Surface(color = SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) { Text("Права администратора", color = Primary, fontWeight = FontWeight.Bold); Text("Можно добавлять пользовательские объекты, фотографии обложек и просматривать общий журнал.", color = Muted, fontSize = 13.sp); Text("Резервная копия: локальная база SQLite", color = Green, fontSize = 12.sp) } }
+            AdminMetric("Акты проверок", state.allInspections.size.toString(), "сохранены на устройстве")
+            Surface(color = SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) { Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) { Text("Права администратора", color = Primary, fontWeight = FontWeight.Bold); Text("Можно добавлять объекты, управлять фотографиями паспортов и просматривать общий журнал.", color = Muted, fontSize = 13.sp); Text("Резервная копия сохраняется в телефоне: Загрузки/KST Energo.", color = Green, fontSize = 12.sp); Text("Выгрузка решений сохраняется в телефоне: Загрузки/KST Energo.", color = Muted, fontSize = 12.sp) } }
             OutlinedButton(onClick = vm::backupDatabase, modifier = Modifier.fillMaxWidth()) { Text("Создать резервную копию базы") }
-            OutlinedButton(onClick = vm::exportFeedback, modifier = Modifier.fillMaxWidth()) { Text("Выгрузить исправления инженеров") }
+            OutlinedButton(onClick = vm::exportFeedback, modifier = Modifier.fillMaxWidth()) { Text("Выгрузить решения инженеров") }
             OutlinedButton(onClick = { showEngineerDialog = true }, modifier = Modifier.fillMaxWidth()) { Text("Добавить инженера") }
             Text("Пользователи (" + state.users.size + ")", color = Primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             state.users.forEach { user -> Surface(color = SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) { Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) { Column(Modifier.weight(1f)) { Text(user.name, fontWeight = FontWeight.SemiBold); Text(user.email, color = Muted, fontSize = 11.sp); Text(user.position, color = Primary, fontSize = 10.sp) }; TextButton(onClick = { vm.changeRole(user.id, if (user.role == "admin") "engineer" else "admin") }) { Text(if (user.role == "admin") "АДМИН" else "ИНЖЕНЕР", color = if (user.role == "admin") Primary else Green, fontSize = 11.sp) } } } }
@@ -491,33 +550,80 @@ private fun AddEquipmentDialog(onDismiss: () -> Unit, vm: MainViewModel) {
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         cover = uri?.let { selectedUri -> context.contentResolver.openInputStream(selectedUri)?.use(android.graphics.BitmapFactory::decodeStream) }
     }
+    val canSave = type.isNotBlank()
     AlertDialog(onDismissRequest = onDismiss, title = { Text("Новый объект") }, text = {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Column(Modifier.heightIn(max = 520.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text("Объект сохранится в локальной базе", color = Muted, fontSize = 12.sp)
-            OutlinedTextField(name, { name = it }, label = { Text("Название") }, singleLine = true)
+            OutlinedTextField(name, { name = it }, label = { Text("Название (необязательно)") }, placeholder = { Text("Новый объект — выбранный тип") }, singleLine = true, modifier = Modifier.fillMaxWidth())
             Box {
-                OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth()) { Text(type, modifier = Modifier.weight(1f), textAlign = TextAlign.Start); Text("⌄") }
+                OutlinedButton(onClick = { typeMenu = true }, modifier = Modifier.fillMaxWidth().height(56.dp), shape = RoundedCornerShape(8.dp)) { Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) { Text("Тип", color = Muted, fontSize = 11.sp); Text(type.ifBlank { "Выберите тип" }, color = Color.White, fontSize = 16.sp) }; Text("⌄") }
                 DropdownMenu(expanded = typeMenu, onDismissRequest = { typeMenu = false }) {
-                    listOf("Насос", "Электродвигатель", "Клапан / задвижка", "Трубопровод").forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { type = option; typeMenu = false }) }
+                    listOf("Насос", "Электродвигатель", "Редуктор", "Вентилятор", "Клапан / задвижка", "Резервуар", "Трубопровод", "Шкаф управления", "Датчик КИПиА").forEach { option -> DropdownMenuItem(text = { Text(option) }, onClick = { type = option; typeMenu = false }) }
                 }
             }
-            OutlinedTextField(tag, { tag = it }, label = { Text("Инвентарный номер") }, singleLine = true)
-            OutlinedTextField(location, { location = it }, label = { Text("Расположение") }, singleLine = true)
-            OutlinedTextField(specs, { specs = it }, label = { Text("Параметры") }, minLines = 2)
+            OutlinedTextField(tag, { tag = it }, label = { Text("Инвентарный номер (необязательно)") }, placeholder = { Text("LOCAL-автоматически") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(location, { location = it }, label = { Text("Расположение (необязательно)") }, singleLine = true, modifier = Modifier.fillMaxWidth())
+            OutlinedTextField(specs, { specs = it }, label = { Text("Параметры (необязательно)") }, minLines = 2, modifier = Modifier.fillMaxWidth())
             OutlinedButton(onClick = { picker.launch("image/*") }, modifier = Modifier.fillMaxWidth()) { Text(if (cover == null) "Добавить фото объекта" else "Фото объекта выбрано") }
         }
-    }, confirmButton = { Button(onClick = { vm.addCustomEquipment(name, type, tag, location, specs, cover); onDismiss() }, enabled = name.isNotBlank() && tag.isNotBlank()) { Text("Сохранить") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } })
+    }, confirmButton = { Button(onClick = { vm.addCustomEquipment(name, type, tag, location, specs, cover); onDismiss() }, enabled = canSave) { Text("Сохранить") } }, dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } })
 }
 
 @Composable
 private fun EquipmentDetailScreen(state: ArUiState, vm: MainViewModel) {
     val item = state.selectedEquipment ?: return
+    val context = LocalContext.current
+    var replacePhotoId by remember(item.id) { mutableStateOf<Long?>(null) }
+    var showCameraPhoto by remember(item.id) { mutableStateOf(false) }
+    val galleryPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        uri?.let { selectedUri ->
+            context.contentResolver.openInputStream(selectedUri)?.use { stream ->
+                android.graphics.BitmapFactory.decodeStream(stream)?.let { bitmap -> vm.addEquipmentPhoto(item.id, bitmap, replacePhotoId) }
+            }
+        }
+        replacePhotoId = null
+    }
     var showEdit by remember(item.id) { mutableStateOf(false) }
     var showDelete by remember(item.id) { mutableStateOf(false) }
+    var showAddComponent by remember(item.id) { mutableStateOf(false) }
+    var editingComponent by remember(item.id) { mutableStateOf<ComponentRecord?>(null) }
+    var deletingComponent by remember(item.id) { mutableStateOf<ComponentRecord?>(null) }
     Column(Modifier.fillMaxSize().background(Bg)) {
         ScreenHeader(item.name, item.typeLabel + " • " + item.tag, vm::openCatalog)
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            EquipmentCover(item, Modifier.fillMaxWidth().height(150.dp))
+            if (item.photos.isEmpty()) {
+                EquipmentCover(item, Modifier.fillMaxWidth().height(150.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedButton(onClick = { galleryPicker.launch("image/*") }, modifier = Modifier.weight(1f)) { Text("Добавить фото", fontSize = 11.sp) }
+                    OutlinedButton(onClick = { showCameraPhoto = true }, modifier = Modifier.weight(1f)) { Text("Снять камерой", fontSize = 11.sp) }
+                    Text("0/5", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                }
+            } else {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        item.photos.forEach { photo ->
+                            val bitmap = remember(photo.path) { runCatching { android.graphics.BitmapFactory.decodeFile(photo.path) }.getOrNull() }
+                            if (bitmap != null) {
+                                Box(Modifier.size(112.dp)) {
+                                    Image(bitmap = bitmap.asImageBitmap(), contentDescription = "Фото паспорта", modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)).clickable { vm.setPrimaryPhoto(photo.id, item.id) }, contentScale = ContentScale.Crop)
+                                    Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(Color.Black.copy(alpha = .72f))) {
+                                        Text(if (photo.isPrimary) "Главное" else "Сделать главным", color = Color.White, fontSize = 9.sp, modifier = Modifier.fillMaxWidth().clickable { vm.setPrimaryPhoto(photo.id, item.id) }.padding(3.dp), textAlign = TextAlign.Center)
+                                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                                            Text("Заменить", color = Primary, fontSize = 8.sp, modifier = Modifier.clickable { replacePhotoId = photo.id; galleryPicker.launch("image/*") }.padding(3.dp))
+                                            Text("Удалить", color = Red, fontSize = 8.sp, modifier = Modifier.clickable { vm.deleteEquipmentPhoto(photo.id, item.id) }.padding(3.dp))
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                        OutlinedButton(onClick = { galleryPicker.launch("image/*") }, enabled = item.photos.size < 5, modifier = Modifier.weight(1f)) { Text("Добавить фото", fontSize = 11.sp) }
+                        OutlinedButton(onClick = { showCameraPhoto = true }, enabled = item.photos.size < 5, modifier = Modifier.weight(1f)) { Text("Снять камерой", fontSize = 11.sp) }
+                        Text(item.photos.size.toString() + "/5", color = Muted, fontSize = 11.sp, modifier = Modifier.align(Alignment.CenterVertically))
+                    }
+                }
+            }
             Surface(color = SurfaceRaised, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(7.dp)) {
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("ТЕКУЩИЙ СТАТУС", color = Muted, fontSize = 11.sp, fontWeight = FontWeight.Bold); Text(statusLabel(item.status), color = statusColor(item.status), fontWeight = FontWeight.Bold, fontSize = 12.sp) }
@@ -536,31 +642,112 @@ private fun EquipmentDetailScreen(state: ArUiState, vm: MainViewModel) {
                     Text("Изменить паспорт и статус")
                 }
             }
-            Text("Компоненты (" + item.components.size + ")", color = Primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-            item.components.forEach { component ->
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
+                Text("Компоненты (" + item.componentRecords.size + ")", color = Primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                if (state.user?.role in setOf("admin", "engineer")) TextButton(onClick = { showAddComponent = true }) { Text("+ Добавить узел", fontSize = 11.sp) }
+            }
+            item.componentRecords.forEach { component ->
                 Surface(
                     color = SurfaceDark,
                     shape = RoundedCornerShape(8.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clickable { vm.startComponentInspection(component) }
+                        // Component rows are edited in the persisted checklist.
+                        // The general camera already localizes recommended nodes;
+                        // do not force a separate camera pass for each node.
+                        .clickable {
+                            val nextStatus = when (component.status) {
+                                "UNKNOWN" -> "NORMAL"
+                                "NORMAL" -> "CHECK_RECOMMENDED"
+                                "CHECK_RECOMMENDED" -> "POSSIBLE_DEFECT"
+                                else -> "UNKNOWN"
+                            }
+                            vm.updateComponentStatus(component.id, item.id, nextStatus)
+                        }
                 ) {
                     Row(Modifier.padding(13.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Box(Modifier.size(8.dp).clip(RoundedCornerShape(50.dp)).background(Muted))
+                        val componentColor = when (component.status) { "NORMAL" -> Green; "CHECK_RECOMMENDED" -> Warning; "POSSIBLE_DEFECT", "CRITICAL" -> Red; else -> Muted }
+                        Box(Modifier.size(8.dp).clip(RoundedCornerShape(50.dp)).background(componentColor))
                         Spacer(Modifier.width(10.dp))
-                        Text(component, fontSize = 14.sp, modifier = Modifier.weight(1f))
-                        Text("Проверить", color = Primary, fontSize = 11.sp)
+                        Text(component.name, fontSize = 14.sp, modifier = Modifier.weight(1f))
+                        if (component.isCustom && state.user?.role in setOf("admin", "engineer")) {
+                            TextButton(onClick = { editingComponent = component }) { Text("Изменить", color = Primary, fontSize = 10.sp) }
+                            TextButton(onClick = { deletingComponent = component }) { Text("Удалить", color = Red, fontSize = 10.sp) }
+                        } else Text(if (component.status == "UNKNOWN") "Проверить" else "Изменить", color = Primary, fontSize = 11.sp)
                     }
                 }
             }
             Text("Последние проверки (" + state.inspections.size + ")", color = Primary, fontWeight = FontWeight.Bold, fontSize = 14.sp)
             if (state.inspections.isEmpty()) EmptyState("Проверок для этого объекта ещё нет") else state.inspections.take(3).forEach { InspectionRow(it) }
-            Button(onClick = vm::startInspection, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(8.dp)) { Text("Запустить анализ", fontWeight = FontWeight.Bold) }
+            Button(onClick = { vm.chooseEquipment(item) }, modifier = Modifier.fillMaxWidth().height(52.dp), shape = RoundedCornerShape(8.dp)) { Text("Проверить этот объект", fontWeight = FontWeight.Bold) }
         }
         BottomNav(state, vm)
     }
     if (showEdit) EditEquipmentDialog(item, { showEdit = false }, vm)
+    if (showAddComponent) ComponentNameDialog("Добавить узел", "", { showAddComponent = false }, { vm.addCustomComponent(item.id, it); showAddComponent = false })
+    editingComponent?.let { component -> ComponentNameDialog("Изменить узел", component.name, { editingComponent = null }, { vm.renameCustomComponent(component.id, item.id, it); editingComponent = null }) }
+    deletingComponent?.let { component ->
+        AlertDialog(
+            onDismissRequest = { deletingComponent = null },
+            title = { Text("Удалить узел?") },
+            text = { Text("Узел «${component.name}» будет удалён из этого паспорта.") },
+            confirmButton = { Button(onClick = { vm.deleteCustomComponent(component.id, item.id); deletingComponent = null }) { Text("Удалить") } },
+            dismissButton = { TextButton(onClick = { deletingComponent = null }) { Text("Отмена") } }
+        )
+    }
+    if (showCameraPhoto) CameraPhotoDialog(
+        onDismiss = { showCameraPhoto = false },
+        onCaptured = { bitmap -> vm.addEquipmentPhoto(item.id, bitmap); showCameraPhoto = false }
+    )
     if (showDelete) AlertDialog(onDismissRequest = { showDelete = false }, title = { Text("Удалить объект?") }, text = { Text("Карточка, компоненты и локальные акты этого объекта будут удалены.") }, confirmButton = { Button(onClick = { showDelete = false; vm.deleteEquipment(item.id) }) { Text("Удалить") } }, dismissButton = { TextButton(onClick = { showDelete = false }) { Text("Отмена") } })
+}
+
+@Composable
+private fun CameraPhotoDialog(onDismiss: () -> Unit, onCaptured: (Bitmap) -> Unit) {
+    val context = LocalContext.current
+    var cameraPermission by remember { mutableStateOf(ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
+    val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { cameraPermission = it }
+    LaunchedEffect(Unit) { if (!cameraPermission) permission.launch(Manifest.permission.CAMERA) }
+    val capture = remember { ImageCapture.Builder().setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY).build() }
+    val executor = remember { Executors.newSingleThreadExecutor() }
+    DisposableEffect(Unit) { onDispose { executor.shutdown() } }
+    Dialog(onDismissRequest = onDismiss) {
+        Surface(color = SurfaceDark, shape = RoundedCornerShape(16.dp), modifier = Modifier.fillMaxWidth().padding(16.dp)) {
+            Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Text("Фото паспорта", color = Primary, fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                if (cameraPermission) {
+                    CameraPreview(capture, Modifier.fillMaxWidth().height(280.dp).clip(RoundedCornerShape(10.dp)))
+                } else {
+                    Text("Разрешите доступ к камере, чтобы добавить фото объекта.", color = Muted, fontSize = 12.sp)
+                    OutlinedButton(onClick = { permission.launch(Manifest.permission.CAMERA) }, modifier = Modifier.fillMaxWidth()) { Text("Разрешить камеру") }
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    TextButton(onClick = onDismiss, modifier = Modifier.weight(1f)) { Text("Отмена") }
+                    Button(
+                        onClick = {
+                            captureFrame(context, capture, executor, { bytes, _, _ ->
+                                android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let(onCaptured)
+                            }, {})
+                        },
+                        enabled = cameraPermission,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Снять фото") }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ComponentNameDialog(title: String, initial: String, onDismiss: () -> Unit, onSave: (String) -> Unit) {
+    var name by remember(title, initial) { mutableStateOf(initial) }
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(title) },
+        text = { OutlinedTextField(name, { name = it }, label = { Text("Название узла") }, singleLine = true, modifier = Modifier.fillMaxWidth()) },
+        confirmButton = { Button(onClick = { onSave(name.trim()) }, enabled = name.trim().isNotBlank()) { Text("Сохранить") } },
+        dismissButton = { TextButton(onClick = onDismiss) { Text("Отмена") } }
+    )
 }
 
 @Composable
@@ -640,19 +827,19 @@ private fun EquipmentCover(item: EquipmentRecord, modifier: Modifier = Modifier)
         return
     }
     val resource = when (item.id) {
-        "AMS-1" -> R.drawable.cover_pump_1
+        "AMS-1" -> R.drawable.cover_pump_2
         "AMS-2" -> R.drawable.cover_pump_2
         "AMS-3" -> R.drawable.cover_pump_3
         "AMS-4" -> R.drawable.cover_pump_4
         "WILO-IL" -> R.drawable.cover_pump_wilo
-        "MTR-1" -> R.drawable.cover_motor_1
-        "VLV-1" -> R.drawable.cover_valve_1
-        "PIP-1" -> R.drawable.cover_pipe_1
+        "MTR-1" -> R.drawable.cover_motor_2
+        "VLV-1" -> R.drawable.cover_valve_2
+        "PIP-1" -> R.drawable.cover_pipe_2
         else -> when (item.type) {
-            "pump" -> R.drawable.cover_pump_1
-            "motor" -> R.drawable.cover_motor_1
-            "valve" -> R.drawable.cover_valve_1
-            "pipe" -> R.drawable.cover_pipe_1
+            "pump" -> R.drawable.cover_pump_2
+            "motor" -> R.drawable.cover_motor_2
+            "valve" -> R.drawable.cover_valve_2
+            "pipe" -> R.drawable.cover_pipe_2
             else -> 0
         }
     }
@@ -675,25 +862,24 @@ private fun ScanScreen(state: ArUiState, vm: MainViewModel) {
         ScanReticle(Modifier.fillMaxSize())
         Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().padding(16.dp), horizontalArrangement = Arrangement.SpaceBetween) {
             OutlinedButton(onClick = vm::backToCatalog) { Text("Назад") }
-            Text("ОФЛАЙН • КАМЕРА", color = Green, modifier = Modifier.background(SurfaceDark, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 10.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
+            Text("КАМЕРА • ОСМОТР", color = Green, modifier = Modifier.background(SurfaceDark, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 10.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
-        Text("Разместите объект в рамке и сделайте снимок для локального анализа", color = Color.White.copy(alpha = .86f), fontSize = 12.sp, modifier = Modifier.align(Alignment.TopCenter).padding(top = 78.dp).background(SurfaceDark.copy(alpha = .86f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
+        Text("Наведите на объект и снимите кадр", color = Color.White.copy(alpha = .9f), fontSize = 11.sp, maxLines = 1, modifier = Modifier.align(Alignment.TopCenter).padding(top = 82.dp).background(SurfaceDark.copy(alpha = .78f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
         if (state.selectedComponent != null) {
             Text("УЗЕЛ: ${state.selectedComponent}", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopCenter).padding(top = 130.dp).background(SurfaceDark.copy(alpha = .92f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
         }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            if (selected != null) Surface(color = SurfaceDark.copy(alpha = .96f), shape = RoundedCornerShape(8.dp)) {
-                Column(Modifier.padding(16.dp)) {
-                    Text("${selected.typeLabel} • ${selected.tag}", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
-                    Text(selected.name, fontSize = 19.sp, fontWeight = FontWeight.Bold)
-                    Text("${selected.location} • ${selected.hours.toInt()} ч / ${selected.toLimit.toInt()} ч", color = Muted, fontSize = 12.sp)
-                    Text("Узлы: ${selected.components.joinToString()}", color = Muted, fontSize = 12.sp)
-                    if (state.inspections.isNotEmpty()) {
-                        Spacer(Modifier.height(8.dp)); Text("История проверок: ${state.inspections.size}", color = Green, fontSize = 12.sp)
-                    }
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 250.dp).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            if (selected == null) Surface(color = SurfaceDark.copy(alpha = .96f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
+                Text("Объект будет выбран после распознавания кадра", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(14.dp))
+            }
+            if (selected != null) Surface(color = SurfaceDark.copy(alpha = .92f), shape = RoundedCornerShape(8.dp), modifier = Modifier.heightIn(max = 92.dp).fillMaxWidth()) {
+                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text("${selected.typeLabel} • ${selected.tag}", color = Primary, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(selected.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text("${selected.location} • ${selected.hours.toInt()} / ${selected.toLimit.toInt()} ч", color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
             }
-            Button(onClick = { captureFrame(context, capture, scanExecutor, vm::analyzeOffline, vm::cameraCaptureFailed) }, enabled = !state.isLoading && cameraPermission, modifier = Modifier.fillMaxWidth().height(54.dp), shape = RoundedCornerShape(8.dp)) {
+            Button(onClick = { captureFrame(context, capture, scanExecutor, vm::analyzeOffline, vm::cameraCaptureFailed) }, enabled = !state.isLoading && cameraPermission, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp), shape = RoundedCornerShape(8.dp)) {
                 if (state.isLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp) else Text("Сделать фото и анализ", fontWeight = FontWeight.Bold)
             }
             state.statusMessage?.let { Text(it, color = if (it.contains("не найден", ignoreCase = true)) Warning else Muted, fontSize = 12.sp) }
@@ -708,23 +894,78 @@ private fun ResultScreen(state: ArUiState, vm: MainViewModel) {
             TextButton(onClick = vm::backToCatalog) { Text("Каталог") }
             Text("РЕЗУЛЬТАТ АНАЛИЗА", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
-        Box(Modifier.fillMaxWidth().weight(1f).padding(horizontal = 12.dp).background(SurfaceDark, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
+        Box(Modifier.fillMaxWidth().heightIn(min = 190.dp, max = 300.dp).padding(horizontal = 12.dp).background(SurfaceDark, RoundedCornerShape(16.dp)), contentAlignment = Alignment.Center) {
             state.previewBitmap?.let { bitmap ->
                 val aspect = bitmap.width.toFloat() / bitmap.height.coerceAtLeast(1)
                 Image(bitmap = bitmap.asImageBitmap(), contentDescription = "Кадр анализа", modifier = Modifier.fillMaxWidth().aspectRatio(aspect))
                 ArOverlay(state, Modifier.fillMaxWidth().aspectRatio(aspect))
             }
-            Text("КАМЕРА • ЛОКАЛЬНЫЙ АНАЛИЗ", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
+            Text("КАМЕРА • АНАЛИЗ", color = Muted, fontSize = 10.sp, modifier = Modifier.align(Alignment.TopStart).padding(12.dp))
         }
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             val color = statusColor(state.visualCategory)
             Text(categoryLabel(state.visualCategory), color = color, fontSize = 14.sp, fontWeight = FontWeight.Bold)
-            Text(state.selectedEquipment?.name.orEmpty(), fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            Text(state.selectedEquipment?.name ?: "Объект ещё не выбран", fontSize = 20.sp, fontWeight = FontWeight.Bold)
+            if (state.selectedEquipment == null) {
+                Surface(color = SurfaceRaised, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Выберите объект для паспорта", color = Primary, fontWeight = FontWeight.Bold)
+                        Text("Распознавание завершено. Выберите подходящую карточку или создайте новый паспорт.", color = Muted, fontSize = 12.sp)
+                        state.recognitionCandidates.forEach { candidate ->
+                            OutlinedButton(onClick = { vm.chooseRecognitionCandidate(candidate.equipment) }, modifier = Modifier.fillMaxWidth()) {
+                                Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.Start) {
+                                    Text(candidate.equipment.name, fontWeight = FontWeight.SemiBold)
+                                    Text(candidate.equipment.tag + " • " + candidate.equipment.location, color = Muted, fontSize = 11.sp)
+                                }
+                            }
+                        }
+                        if (state.detectedType != null) {
+                            Button(onClick = { vm.createEquipmentFromRecognition(state.detectedType, state.previewBitmap) }, modifier = Modifier.fillMaxWidth()) { Text("Создать новый паспорт") }
+                        }
+                        OutlinedButton(onClick = vm::backToCatalog, modifier = Modifier.fillMaxWidth()) { Text("Открыть каталог") }
+                    }
+                }
+            }
             Text(state.summary, color = Color.White, fontSize = 15.sp)
             Text(state.recommendation, color = Muted, fontSize = 13.sp)
-            Text("${state.confidence?.let { "Предварительная уверенность ${(it*100).toInt()}%" } ?: "Оценка недоступна"} • телеметрия: локальный набор данных", color = Muted, fontSize = 11.sp)
-            Text("Визуальный анализ предварительный и не подтверждает исправность оборудования.", color = Warning, fontSize = 11.sp)
-            ComponentChecklist(state.selectedEquipment?.components.orEmpty())
+            Text(state.confidence?.let { "Предварительная уверенность ${(it*100).toInt()}%" } ?: "Оценка недоступна", color = Muted, fontSize = 11.sp)
+            if (state.detectedPumpModel != null || state.ocrText.isNotBlank()) {
+                Surface(color = SurfaceRaised, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Распознавание шильдика", color = Primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        state.detectedPumpModel?.let { Text("Визуальная модель: " + it, color = Color.White, fontSize = 12.sp) }
+                        if (state.ocrText.isNotBlank()) Text("Текст: " + state.ocrText.take(180), color = Muted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        state.ocrConfidence?.let { Text("Уверенность OCR: " + (it * 100).toInt() + "%", color = Muted, fontSize = 11.sp) }
+                        Text("Номер и карточку подтвердите инженером.", color = Warning, fontSize = 11.sp)
+                    }
+                }
+            }
+            Text("Проверьте выделенные узлы и подтвердите решение инженером.", color = Muted, fontSize = 11.sp)
+            if (state.affectedComponents.isNotEmpty()) {
+                Surface(color = Red.copy(alpha = .10f), shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text("Узлы для проверки", color = Red, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                        Text(state.affectedComponents.joinToString(" • "), color = Color.White, fontSize = 12.sp)
+                        Text("Рамка на снимке показывает область признака. Состояние узла подтвердите вручную.", color = Muted, fontSize = 11.sp)
+                    }
+                }
+            }
+            ComponentChecklist(state.selectedEquipment?.componentRecords.orEmpty(), state.selectedEquipment?.id, vm, state.affectedComponents)
+            state.recommendedStatus?.let { recommended ->
+                Surface(color = SurfaceRaised, shape = RoundedCornerShape(10.dp), modifier = Modifier.fillMaxWidth()) {
+                    Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text("Рекомендация программы", color = Primary, fontWeight = FontWeight.Bold)
+                        Text("Предлагаемый статус: " + statusLabel(recommended), color = statusColor(recommended), fontWeight = FontWeight.SemiBold)
+                        state.statusReason?.let { reason -> Text("Основание: " + reason, color = Muted, fontSize = 12.sp) }
+                        Text("Примите рекомендацию только после визуальной проверки.", color = Muted, fontSize = 11.sp)
+                        OutlinedButton(onClick = vm::applyRecommendedStatus, enabled = !state.inspectionSaved, modifier = Modifier.fillMaxWidth()) { Text(if (state.inspectionSaved) "Статус и акт сохранены" else "Принять статус программы") }
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
+                            OutlinedButton(onClick = vm::editPassportAndStatus, enabled = !state.inspectionSaved, modifier = Modifier.weight(1f)) { Text("Изменить статус", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                            OutlinedButton(onClick = vm::keepCurrentStatus, enabled = !state.inspectionSaved, modifier = Modifier.weight(1f)) { Text("Оставить текущий", fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                        }
+                    }
+                }
+            }
             Text("Подтвердите результат анализа:", color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold)
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.fillMaxWidth()) {
                 OutlinedButton(onClick = { vm.confirmVisualStatus("NO_VISIBLE_PROBLEM") }, modifier = Modifier.weight(1f)) { Text("Проблем нет", fontSize = 11.sp) }
@@ -732,7 +973,7 @@ private fun ResultScreen(state: ArUiState, vm: MainViewModel) {
                 OutlinedButton(onClick = { vm.confirmVisualStatus("POSSIBLE_DEFECT") }, modifier = Modifier.weight(1f)) { Text("Дефект", fontSize = 11.sp) }
             }
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Button(onClick = vm::saveInspection, enabled = !state.isSaving, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { if (state.isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) else Text("Сохранить акт") }
+                Button(onClick = vm::saveInspection, enabled = !state.isSaving && !state.inspectionSaved, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { if (state.isSaving) CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp) else Text(if (state.inspectionSaved) "Акт сохранён" else "Сохранить акт") }
                 OutlinedButton(onClick = vm::backToCatalog, modifier = Modifier.weight(1f), shape = RoundedCornerShape(8.dp)) { Text("Завершить") }
             }
             state.statusMessage?.let { Text(it, color = Green, fontSize = 12.sp) }
@@ -778,17 +1019,46 @@ private fun ScanReticle(modifier: Modifier = Modifier) {
 
 @Composable
 private fun ArOverlay(state: ArUiState, modifier: Modifier = Modifier) {
-    val textPaint = remember { Paint().apply { color = android.graphics.Color.WHITE; textSize = 30f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); isAntiAlias = true } }
+    val textPaint = remember { Paint().apply { color = android.graphics.Color.WHITE; textSize = 15f; typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD); isAntiAlias = true } }
     val bgPaint = remember { Paint().apply { isAntiAlias = true } }
     Canvas(modifier) {
         val sx = size.width / state.sourceImageWidth.coerceAtLeast(1); val sy = size.height / state.sourceImageHeight.coerceAtLeast(1)
-        state.boxes.forEach { box ->
+        val occupied = mutableListOf<android.graphics.RectF>()
+        fun overlaps(rect: android.graphics.RectF): Boolean = occupied.any { android.graphics.RectF.intersects(it, rect) }
+        fun placeLabel(text: String, anchorLeft: Float, anchorTop: Float, width: Float, height: Float, color: Color, paint: Paint, above: Boolean): android.graphics.RectF {
+            val safeWidth = width.coerceAtMost(size.width - 12f)
+            val left = anchorLeft.coerceIn(6f, size.width - safeWidth - 6f)
+            val start = if (above) (anchorTop - height - 6f) else (anchorTop + 6f)
+            val step = height + 5f
+            val candidates = (0..12).map { index ->
+                val offset = index * step
+                val primary = if (above) start - offset else start + offset
+                val alternate = if (above) start + offset else start - offset
+                listOf(primary, alternate)
+            }.flatten()
+            val top = candidates.firstOrNull { candidate ->
+                val rect = android.graphics.RectF(left, candidate.coerceIn(6f, size.height - height - 6f), left + safeWidth, candidate.coerceIn(6f, size.height - height - 6f) + height)
+                !overlaps(rect)
+            } ?: (size.height - height - 6f).coerceAtLeast(6f)
+            val rect = android.graphics.RectF(left, top, left + safeWidth, top + height)
+            occupied += rect
+            bgPaint.color = color.toArgb()
+            drawContext.canvas.nativeCanvas.apply { drawRoundRect(rect, 6f, 6f, bgPaint); drawText(text, rect.left + 8f, rect.top + height - 8f, paint) }
+            return rect
+        }
+        state.boxes.take(5).forEach { box ->
             val color = statusColor(box.status)
-            val left = box.x1*sx; val top = box.y1*sy; val width = (box.x2-box.x1)*sx; val height = (box.y2-box.y1)*sy
-            drawRect(color.copy(alpha = .12f), Offset(left,top), Size(width,height)); drawRect(color, Offset(left,top), Size(width,height), style = Stroke(5f))
-            val label = if (box.confidence <= 0f) box.label else box.label + " " + (box.confidence * 100).toInt() + "%"
-            val labelTop = (top - 42f).coerceAtLeast(4f); bgPaint.color = color.toArgb()
-            drawContext.canvas.nativeCanvas.apply { drawRect(left,labelTop,left+textPaint.measureText(label)+24f,labelTop+38f,bgPaint); drawText(label,left+12f,labelTop+28f,textPaint) }
+            val left = (box.x1*sx).coerceIn(0f, size.width); val top = (box.y1*sy).coerceIn(0f, size.height); val right = (box.x2*sx).coerceIn(left + 4f, size.width); val bottom = (box.y2*sy).coerceIn(top + 4f, size.height); val width = right-left; val height = bottom-top
+            drawRect(color.copy(alpha = if (box.status == "POSSIBLE_DEFECT") .22f else .12f), Offset(left,top), Size(width,height)); drawRect(color, Offset(left,top), Size(width,height), style = Stroke(if (box.status == "POSSIBLE_DEFECT") 4f else 2.5f))
+            if (box.affectedComponent != null) {
+                val cx = left + width / 2f; val cy = top + height / 2f
+                drawCircle(color.copy(alpha = .95f), radius = 9f, center = Offset(cx, cy))
+                drawCircle(Color.White, radius = 4f, center = Offset(cx, cy))
+            }
+            val rawLabel = if (box.affectedComponent != null) box.label + " → " + box.affectedComponent else box.label
+            val label = rawLabel.take(42).let { if (rawLabel.length > 42) it.dropLast(1) + "…" else it }
+            val labelWidth = (textPaint.measureText(label)+16f).coerceAtMost(size.width - 12f)
+            placeLabel(label, left, top, labelWidth, 26f, color, textPaint, above = true)
         }
     }
 }
@@ -841,20 +1111,29 @@ private fun PassportZoneOverlay(type: String?, objectBox: ArBoundingBox?, source
 }
 
 @Composable
-private fun ComponentChecklist(components: List<String>) {
+private fun ComponentChecklist(components: List<ComponentRecord>, equipmentId: String?, vm: MainViewModel, affectedComponents: List<String> = emptyList()) {
     if (components.isEmpty()) return
-    val statuses = remember(components) { mutableStateMapOf<String, String>().apply { components.forEach { put(it, "Нужно проверить") } } }
+    val checked = components.count { it.status != "UNKNOWN" }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text("Чек-лист узлов", color = Primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
-        Text("Точная разметка узлов не входит в датасет; подтвердите состояние вручную.", color = Muted, fontSize = 11.sp)
+        Text("Чек-лист узлов • $checked из ${components.size} проверено", color = Primary, fontWeight = FontWeight.Bold, fontSize = 13.sp)
+        Text("Проверьте каждый узел и выберите его состояние. Нажмите на строку, чтобы изменить статус.", color = Muted, fontSize = 11.sp)
         components.forEach { component ->
-            val status = statuses[component] ?: "Нужно проверить"
-            val color = when (status) { "Проверено" -> Green; "Внимание" -> Warning; else -> Muted }
-            Surface(color = SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().clickable { statuses[component] = when (status) { "Нужно проверить" -> "Проверено"; "Проверено" -> "Внимание"; else -> "Нужно проверить" } }) {
+            val status = component.status
+            val label = when (status) { "NORMAL" -> "Норма"; "CHECK_RECOMMENDED" -> "Внимание"; "POSSIBLE_DEFECT", "CRITICAL" -> "Дефект"; else -> "Не проверено" }
+            val color = when (status) { "NORMAL" -> Green; "CHECK_RECOMMENDED" -> Warning; "POSSIBLE_DEFECT", "CRITICAL" -> Red; else -> Muted }
+            val affected = component.name in affectedComponents
+            Surface(color = if (affected) Red.copy(alpha = .12f) else SurfaceDark, shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth().border(if (affected) 1.dp else 0.dp, if (affected) Red else Color.Transparent, RoundedCornerShape(8.dp)).clickable {
+                if (equipmentId != null) {
+                    val next = when (status) { "UNKNOWN" -> "NORMAL"; "NORMAL" -> "CHECK_RECOMMENDED"; "CHECK_RECOMMENDED" -> "POSSIBLE_DEFECT"; else -> "UNKNOWN" }
+                    vm.updateComponentStatus(component.id, equipmentId, next)
+                }
+            }) {
                 Row(Modifier.padding(horizontal = 12.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(color))
-                    Spacer(Modifier.width(10.dp)); Text(component, modifier = Modifier.weight(1f), fontSize = 13.sp)
-                    Text(status, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                    Box(Modifier.size(9.dp).clip(RoundedCornerShape(50)).background(if (affected) Red else color))
+                    Spacer(Modifier.width(10.dp)); Text(component.name, modifier = Modifier.weight(1f), fontSize = 13.sp, fontWeight = if (affected) FontWeight.Bold else FontWeight.Normal)
+                    if (affected) Text("ПРИЗНАК", color = Red, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                    Spacer(Modifier.width(6.dp))
+                    Text(label, color = color, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
                 }
             }
         }

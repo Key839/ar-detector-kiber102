@@ -1,0 +1,12 @@
+# Local Gradle and IDE state
+.gradle/
+.kotlin/
+build/
+**/build/
+local.properties
+
+# Local build exports and temporary APK variants
+artifacts/
+app-debug-*.apk
+
+# Keep the canonical demo APK (app-debug.apk) tracked.
