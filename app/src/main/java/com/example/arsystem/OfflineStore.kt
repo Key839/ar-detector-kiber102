@@ -83,7 +83,11 @@ data class InspectionRecord(
     val imagePath: String? = null,
     val confidence: Float? = null,
     val userId: Long? = null,
-    val status: String = ""
+    val status: String = "",
+    val detectedEquipmentType: String? = null,
+    val detectedPumpModel: String? = null,
+    val detectedAssetId: String? = null,
+    val ocrText: String = ""
 )
 
 data class InspectionDetails(
@@ -104,7 +108,7 @@ data class FeedbackRecord(
     val exported: Boolean
 )
 
-class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "kst_offline.db", null, 15) {
+class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "kst_offline.db", null, 16) {
     private val imageDir = File(context.filesDir, "inspection_images").apply { mkdirs() }
     private val coverDir = File(context.filesDir, "equipment_covers").apply { mkdirs() }
     override fun onCreate(db: SQLiteDatabase) {
@@ -113,7 +117,7 @@ class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "ks
         db.execSQL("CREATE TABLE components(id TEXT PRIMARY KEY, equipment_id TEXT NOT NULL, name TEXT NOT NULL, status TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '', is_custom INTEGER NOT NULL DEFAULT 0)")
         db.execSQL("CREATE TABLE equipment_photos(id INTEGER PRIMARY KEY AUTOINCREMENT, equipment_id TEXT NOT NULL, path TEXT NOT NULL, kind TEXT NOT NULL DEFAULT 'passport', sort_order INTEGER NOT NULL DEFAULT 0, is_primary INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL)")
         db.execSQL("CREATE TABLE component_inspections(id INTEGER PRIMARY KEY AUTOINCREMENT, inspection_id INTEGER, component_id TEXT NOT NULL, equipment_id TEXT NOT NULL, status TEXT NOT NULL, comment TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL)")
-        db.execSQL("CREATE TABLE inspections(id INTEGER PRIMARY KEY AUTOINCREMENT, equipment_id TEXT NOT NULL, user_id INTEGER, created_at TEXT NOT NULL, category TEXT NOT NULL, confidence REAL, summary TEXT NOT NULL, recommendation TEXT NOT NULL, image_path TEXT, status TEXT NOT NULL DEFAULT 'OPEN')")
+        db.execSQL("CREATE TABLE inspections(id INTEGER PRIMARY KEY AUTOINCREMENT, equipment_id TEXT NOT NULL, user_id INTEGER, created_at TEXT NOT NULL, category TEXT NOT NULL, confidence REAL, summary TEXT NOT NULL, recommendation TEXT NOT NULL, image_path TEXT, status TEXT NOT NULL DEFAULT 'OPEN', detected_equipment_type TEXT, detected_pump_model TEXT, detected_asset_id TEXT, ocr_text TEXT NOT NULL DEFAULT '')")
         db.execSQL("CREATE TABLE maintenance_events(id INTEGER PRIMARY KEY AUTOINCREMENT, equipment_id TEXT NOT NULL, created_at TEXT NOT NULL, title TEXT NOT NULL, status TEXT NOT NULL)")
         db.execSQL("CREATE TABLE feedback_queue(id INTEGER PRIMARY KEY AUTOINCREMENT, inspection_id INTEGER, equipment_id TEXT NOT NULL, user_id INTEGER, predicted_category TEXT NOT NULL, corrected_category TEXT NOT NULL, component TEXT, comment TEXT NOT NULL DEFAULT '', created_at TEXT NOT NULL, exported INTEGER NOT NULL DEFAULT 0)")
         seed(db)
@@ -163,6 +167,29 @@ class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "ks
         if (oldVersion < 15) {
             runCatching { db.execSQL("ALTER TABLE inspections ADD COLUMN status TEXT NOT NULL DEFAULT 'OPEN'") }
         }
+        if (oldVersion < 16) {
+            runCatching { db.execSQL("ALTER TABLE inspections ADD COLUMN detected_equipment_type TEXT") }
+            runCatching { db.execSQL("ALTER TABLE inspections ADD COLUMN detected_pump_model TEXT") }
+            runCatching { db.execSQL("ALTER TABLE inspections ADD COLUMN detected_asset_id TEXT") }
+            runCatching { db.execSQL("ALTER TABLE inspections ADD COLUMN ocr_text TEXT NOT NULL DEFAULT ''") }
+        }
+    }
+
+    /**
+     * Some field phones still have a database created by an intermediate
+     * release whose schema number is higher than the APK that was copied to
+     * the phone. Android otherwise throws before Compose can render anything
+     * ("Can't downgrade database"). The schema additions are backward
+     * compatible, so keep the on-device database at its newer version and let
+     * the older binary use the columns it knows. The next APK upgrade will run
+     * the normal onUpgrade path.
+     */
+    override fun onDowngrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion > newVersion) {
+            db.version = oldVersion
+            return
+        }
+        super.onDowngrade(db, oldVersion, newVersion)
     }
 
     private fun seed(db: SQLiteDatabase) {
@@ -401,14 +428,14 @@ class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "ks
         }
     }
 
-    fun saveInspection(equipmentId: String, userId: Long?, category: String, confidence: Float?, summary: String, recommendation: String, image: Bitmap? = null, status: String = "OPEN"): Long {
+    fun saveInspection(equipmentId: String, userId: Long?, category: String, confidence: Float?, summary: String, recommendation: String, image: Bitmap? = null, status: String = "OPEN", detectedEquipmentType: String? = null, detectedPumpModel: String? = null, detectedAssetId: String? = null, ocrText: String = ""): Long {
         val imagePath = image?.let {
             val file = File(imageDir, "inspection_${System.currentTimeMillis()}.jpg")
             FileOutputStream(file).use { out -> it.compress(Bitmap.CompressFormat.JPEG, 85, out) }
             file.absolutePath
         }
         val values = android.content.ContentValues().apply {
-            put("equipment_id", equipmentId); put("user_id", userId); put("created_at", System.currentTimeMillis().toString()); put("category", category); put("confidence", confidence); put("summary", summary); put("recommendation", recommendation); put("image_path", imagePath); put("status", status.ifBlank { "OPEN" })
+            put("equipment_id", equipmentId); put("user_id", userId); put("created_at", System.currentTimeMillis().toString()); put("category", category); put("confidence", confidence); put("summary", summary); put("recommendation", recommendation); put("image_path", imagePath); put("status", status.ifBlank { "OPEN" }); put("detected_equipment_type", detectedEquipmentType); put("detected_pump_model", detectedPumpModel); put("detected_asset_id", detectedAssetId); put("ocr_text", ocrText)
         }
         return writableDatabase.insertOrThrow("inspections", null, values)
     }
@@ -518,8 +545,9 @@ class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "ks
     /** Export engineer decisions into the user-visible Downloads/KST Energo folder. */
     fun exportFeedbackToDownloads(): String? = runCatching {
         val stamp = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date())
+        val pending = feedback().filter { !it.exported }
         val payload = buildString {
-            feedback().filter { !it.exported }.forEach { item ->
+            pending.forEach { item ->
                 append(org.json.JSONObject().apply {
                     put("id", item.id); put("inspectionId", item.inspectionId); put("equipmentId", item.equipmentId)
                     put("predictedCategory", item.predictedCategory); put("correctedCategory", item.correctedCategory)
@@ -527,7 +555,11 @@ class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "ks
                 }.toString()).append('\n')
             }
         }
-        writePublicDownload("KST_feedback_$stamp.jsonl", "application/json", payload.toByteArray(Charsets.UTF_8))
+        val result = writePublicDownload("KST_feedback_$stamp.jsonl", "application/json", payload.toByteArray(Charsets.UTF_8))
+        if (result != null && pending.isNotEmpty()) {
+            writableDatabase.execSQL("UPDATE feedback_queue SET exported=1 WHERE id IN (${pending.joinToString(",") { "?" }})", pending.map { it.id }.toTypedArray())
+        }
+        result
     }.getOrNull()
 
     fun feedback(): List<FeedbackRecord> = buildList {
@@ -537,20 +569,20 @@ class OfflineStore(private val context: Context) : SQLiteOpenHelper(context, "ks
     }
 
     fun inspections(equipmentId: String): List<InspectionRecord> = buildList {
-            readableDatabase.rawQuery("SELECT i.id,i.equipment_id,COALESCE(e.name,''),i.category,i.summary,i.recommendation,i.created_at,i.image_path,i.confidence,i.user_id,i.status FROM inspections i LEFT JOIN equipment e ON e.id=i.equipment_id WHERE i.equipment_id=? ORDER BY i.id DESC", arrayOf(equipmentId)).use { c ->
-            while (c.moveToNext()) add(InspectionRecord(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), if (c.isNull(7)) null else c.getString(7), if (c.isNull(8)) null else c.getFloat(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10)))
+            readableDatabase.rawQuery("SELECT i.id,i.equipment_id,COALESCE(e.name,''),i.category,i.summary,i.recommendation,i.created_at,i.image_path,i.confidence,i.user_id,i.status,i.detected_equipment_type,i.detected_pump_model,i.detected_asset_id,i.ocr_text FROM inspections i LEFT JOIN equipment e ON e.id=i.equipment_id WHERE i.equipment_id=? ORDER BY i.id DESC", arrayOf(equipmentId)).use { c ->
+            while (c.moveToNext()) add(InspectionRecord(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), if (c.isNull(7)) null else c.getString(7), if (c.isNull(8)) null else c.getFloat(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10), c.getString(11), c.getString(12), c.getString(13), c.getString(14)))
         }
     }
 
     fun allInspections(): List<InspectionRecord> = buildList {
-            readableDatabase.rawQuery("SELECT i.id,i.equipment_id,COALESCE(e.name,''),i.category,i.summary,i.recommendation,i.created_at,i.image_path,i.confidence,i.user_id,i.status FROM inspections i LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id DESC", null).use { c ->
-            while (c.moveToNext()) add(InspectionRecord(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), if (c.isNull(7)) null else c.getString(7), if (c.isNull(8)) null else c.getFloat(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10)))
+            readableDatabase.rawQuery("SELECT i.id,i.equipment_id,COALESCE(e.name,''),i.category,i.summary,i.recommendation,i.created_at,i.image_path,i.confidence,i.user_id,i.status,i.detected_equipment_type,i.detected_pump_model,i.detected_asset_id,i.ocr_text FROM inspections i LEFT JOIN equipment e ON e.id=i.equipment_id ORDER BY i.id DESC", null).use { c ->
+            while (c.moveToNext()) add(InspectionRecord(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), if (c.isNull(7)) null else c.getString(7), if (c.isNull(8)) null else c.getFloat(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10), c.getString(11), c.getString(12), c.getString(13), c.getString(14)))
         }
     }
 
     fun inspectionDetails(inspectionId: Long): InspectionDetails? {
-        val inspection = readableDatabase.rawQuery("SELECT i.id,i.equipment_id,COALESCE(e.name,''),i.category,i.summary,i.recommendation,i.created_at,i.image_path,i.confidence,i.user_id,i.status FROM inspections i LEFT JOIN equipment e ON e.id=i.equipment_id WHERE i.id=?", arrayOf(inspectionId.toString())).use { c ->
-            if (!c.moveToFirst()) null else InspectionRecord(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), if (c.isNull(7)) null else c.getString(7), if (c.isNull(8)) null else c.getFloat(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10))
+        val inspection = readableDatabase.rawQuery("SELECT i.id,i.equipment_id,COALESCE(e.name,''),i.category,i.summary,i.recommendation,i.created_at,i.image_path,i.confidence,i.user_id,i.status,i.detected_equipment_type,i.detected_pump_model,i.detected_asset_id,i.ocr_text FROM inspections i LEFT JOIN equipment e ON e.id=i.equipment_id WHERE i.id=?", arrayOf(inspectionId.toString())).use { c ->
+            if (!c.moveToFirst()) null else InspectionRecord(c.getLong(0), c.getString(1), c.getString(2), c.getString(3), c.getString(4), c.getString(5), c.getString(6), if (c.isNull(7)) null else c.getString(7), if (c.isNull(8)) null else c.getFloat(8), if (c.isNull(9)) null else c.getLong(9), c.getString(10), c.getString(11), c.getString(12), c.getString(13), c.getString(14))
         } ?: return null
         return InspectionDetails(inspection, componentInspectionHistory(inspection.equipmentId).filter { it.inspectionId == inspectionId })
     }

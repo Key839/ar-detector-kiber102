@@ -67,6 +67,29 @@ data class RecognitionCandidate(
     val matchReason: String = "Тип оборудования"
 )
 
+/** Typed local representation of the backend recognition contract. */
+data class EquipmentDetection(
+    val type: String,
+    val confidence: Float,
+    val box: ArBoundingBox? = null
+)
+
+data class PumpModelPrediction(
+    val model: String,
+    val confidence: Float,
+    val isUnknown: Boolean = false
+)
+
+data class StatusRecommendation(
+    val suggestedStatus: String,
+    val reason: String,
+    val confidence: Float? = null,
+    val defects: List<String> = emptyList(),
+    val affectedComponents: List<String> = emptyList(),
+    val nextCheck: String = "Проверьте выделенные узлы и подтвердите решение инженером.",
+    val modelVersion: String = "equipment-detector/defect-detector"
+)
+
 data class ArUiState(
     val screen: AppScreen = AppScreen.CATALOG,
     val isLoading: Boolean = false,
@@ -700,10 +723,18 @@ class MainViewModel(application: Application) : AndroidViewModel(application) {
     }
     private fun saveInspectionBundle(state: ArUiState, item: EquipmentRecord): Long? {
         val user = state.user
-        val inspectionId = runCatching { store.saveInspection(item.id, user?.id, state.visualCategory, state.confidence, state.summary, state.recommendation, state.previewBitmap, state.recommendedStatus ?: "OPEN") }.getOrNull() ?: return null
+        val inspectionId = runCatching {
+            store.saveInspection(
+                item.id, user?.id, state.visualCategory, state.confidence, state.summary,
+                state.recommendation, state.previewBitmap, state.recommendedStatus ?: "OPEN",
+                state.detectedType, state.detectedPumpModel, state.detectedAssetId, state.ocrText
+            )
+        }.getOrNull() ?: return null
         runCatching {
             store.saveFeedback(inspectionId, item.id, user?.id, state.predictedCategory ?: state.visualCategory, state.visualCategory, state.selectedComponent, if (user == null) "Подтверждено пользователем" else "Подтверждено инженером")
-            item.componentRecords.filter { it.name in state.affectedComponents || it.name == state.selectedComponent }.forEach { component ->
+            // Persist every component state in the act. This makes the journal
+            // auditable even when the engineer marked a normal node manually.
+            item.componentRecords.forEach { component ->
                 store.saveComponentInspection(inspectionId, component.id, item.id, component.status, component.comment)
             }
         }

@@ -410,11 +410,34 @@ private fun InspectionRow(item: InspectionRecord, vm: MainViewModel? = null, onO
             val preview = remember(item.imagePath) { item.imagePath?.let { path -> runCatching { android.graphics.BitmapFactory.decodeFile(path) }.getOrNull() } }
             if (preview != null) Image(bitmap = preview.asImageBitmap(), contentDescription = "Сохранённый кадр", modifier = Modifier.size(62.dp).clip(RoundedCornerShape(6.dp)), contentScale = ContentScale.Crop)
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.Top) {
-                    Column(Modifier.weight(1f)) { Text(item.equipmentName.ifBlank { item.equipmentId }, fontWeight = FontWeight.SemiBold); Text("ID акта: ${item.id} • Объект: ${item.equipmentId}", color = Muted, fontSize = 10.sp) }
-                    Text(categoryLabel(item.category), color = statusColor(item.category), fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                // Keep the object name and the status on separate lines. A long
+                // status label must never reduce the name column to a few pixels.
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    Text(
+                        item.equipmentName.ifBlank { item.equipmentId },
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        "ID акта: ${item.id} • Объект: ${item.equipmentId}",
+                        color = Muted,
+                        fontSize = 10.sp,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    Text(
+                        categoryLabel(item.category),
+                        color = statusColor(item.category),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
                 }
-                Text(item.summary, color = Color.White, fontSize = 13.sp); Text(item.recommendation, color = Muted, fontSize = 12.sp); Text("Дата: ${item.createdAt}", color = Muted, fontSize = 10.sp)
+                Text(item.summary, color = Color.White, fontSize = 13.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text(item.recommendation, color = Muted, fontSize = 12.sp, maxLines = 3, overflow = TextOverflow.Ellipsis)
+                Text("Дата: ${item.createdAt}", color = Muted, fontSize = 10.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 if (onOpen != null || onDelete != null) {
                     Row(Modifier.align(Alignment.End), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                         onOpen?.let { TextButton(onClick = it) { Text("Открыть акт", color = Primary, fontSize = 11.sp) } }
@@ -439,6 +462,10 @@ private fun InspectionDetailsDialog(details: InspectionDetails, onDismiss: () ->
                 Text("Номер объекта: ${item.equipmentId}", color = Muted, fontSize = 12.sp)
                 Text("Дата: ${item.createdAt}", color = Muted, fontSize = 12.sp)
                 Text("Статус: ${categoryLabel(item.category)}", color = statusColor(item.category), fontWeight = FontWeight.Bold)
+                item.detectedEquipmentType?.takeIf { it.isNotBlank() }?.let { Text("Распознанный тип: ${it}", color = Color.White, fontSize = 12.sp) }
+                item.detectedPumpModel?.takeIf { it.isNotBlank() }?.let { Text("Модель насоса: ${it}", color = Color.White, fontSize = 12.sp) }
+                item.detectedAssetId?.takeIf { it.isNotBlank() }?.let { Text("Распознанный объект: ${it}", color = Color.White, fontSize = 12.sp) }
+                item.ocrText.takeIf { it.isNotBlank() }?.let { Text("Текст шильдика: ${it.take(180)}", color = Muted, fontSize = 11.sp, maxLines = 3, overflow = TextOverflow.Ellipsis) }
                 preview?.let { Image(bitmap = it.asImageBitmap(), contentDescription = "Кадр осмотра", modifier = Modifier.fillMaxWidth().heightIn(max = 220.dp).clip(RoundedCornerShape(8.dp)), contentScale = ContentScale.Fit) }
                 Text("Результат", color = Primary, fontWeight = FontWeight.Bold)
                 Text(item.summary, color = Color.White, fontSize = 13.sp)
@@ -864,25 +891,40 @@ private fun ScanScreen(state: ArUiState, vm: MainViewModel) {
             OutlinedButton(onClick = vm::backToCatalog) { Text("Назад") }
             Text("КАМЕРА • ОСМОТР", color = Green, modifier = Modifier.background(SurfaceDark, RoundedCornerShape(6.dp)).padding(horizontal = 12.dp, vertical = 10.dp), fontWeight = FontWeight.Bold, fontSize = 12.sp)
         }
-        Text("Наведите на объект и снимите кадр", color = Color.White.copy(alpha = .9f), fontSize = 11.sp, maxLines = 1, modifier = Modifier.align(Alignment.TopCenter).padding(top = 82.dp).background(SurfaceDark.copy(alpha = .78f), RoundedCornerShape(8.dp)).padding(horizontal = 10.dp, vertical = 6.dp))
+        // Keep guidance compact so it never hides the live camera preview.
+        Text(
+            "Наведите на объект и снимите кадр",
+            color = Color.White.copy(alpha = .9f),
+            fontSize = 11.sp,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 78.dp, start = 16.dp, end = 16.dp)
+                .background(SurfaceDark.copy(alpha = .78f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 10.dp, vertical = 6.dp)
+        )
         if (state.selectedComponent != null) {
             Text("УЗЕЛ: ${state.selectedComponent}", color = Primary, fontSize = 12.sp, fontWeight = FontWeight.Bold, modifier = Modifier.align(Alignment.TopCenter).padding(top = 130.dp).background(SurfaceDark.copy(alpha = .92f), RoundedCornerShape(8.dp)).padding(horizontal = 12.dp, vertical = 8.dp))
         }
-        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 250.dp).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        // The live preview remains the dominant surface. Long passport and
+        // component information is shown after capture on the result screen.
+        Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().heightIn(max = 148.dp).verticalScroll(rememberScrollState()).navigationBarsPadding().padding(horizontal = 16.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             if (selected == null) Surface(color = SurfaceDark.copy(alpha = .96f), shape = RoundedCornerShape(8.dp), modifier = Modifier.fillMaxWidth()) {
                 Text("Объект будет выбран после распознавания кадра", color = Color.White, fontSize = 13.sp, modifier = Modifier.padding(14.dp))
             }
-            if (selected != null) Surface(color = SurfaceDark.copy(alpha = .92f), shape = RoundedCornerShape(8.dp), modifier = Modifier.heightIn(max = 92.dp).fillMaxWidth()) {
-                Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            if (selected != null) Surface(color = SurfaceDark.copy(alpha = .92f), shape = RoundedCornerShape(8.dp), modifier = Modifier.heightIn(max = 48.dp).fillMaxWidth()) {
+                Row(Modifier.padding(horizontal = 12.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("${selected.typeLabel} • ${selected.tag}", color = Primary, fontSize = 11.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text(selected.name, fontSize = 16.sp, fontWeight = FontWeight.Bold, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("${selected.location} • ${selected.hours.toInt()} / ${selected.toLimit.toInt()} ч", color = Muted, fontSize = 11.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Spacer(Modifier.width(8.dp))
+                    Text(selected.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                 }
             }
-            Button(onClick = { captureFrame(context, capture, scanExecutor, vm::analyzeOffline, vm::cameraCaptureFailed) }, enabled = !state.isLoading && cameraPermission, modifier = Modifier.fillMaxWidth().heightIn(min = 54.dp), shape = RoundedCornerShape(8.dp)) {
+            Button(onClick = { captureFrame(context, capture, scanExecutor, vm::analyzeOffline, vm::cameraCaptureFailed) }, enabled = !state.isLoading && cameraPermission, modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp), shape = RoundedCornerShape(8.dp)) {
                 if (state.isLoading) CircularProgressIndicator(modifier = Modifier.size(22.dp), color = Color.Black, strokeWidth = 2.dp) else Text("Сделать фото и анализ", fontWeight = FontWeight.Bold)
             }
-            state.statusMessage?.let { Text(it, color = if (it.contains("не найден", ignoreCase = true)) Warning else Muted, fontSize = 12.sp) }
+            state.statusMessage?.let { Text(it, color = if (it.contains("не найден", ignoreCase = true)) Warning else Muted, fontSize = 11.sp, maxLines = 2, overflow = TextOverflow.Ellipsis) }
         }
     }
 }
@@ -1056,9 +1098,12 @@ private fun ArOverlay(state: ArUiState, modifier: Modifier = Modifier) {
                 drawCircle(Color.White, radius = 4f, center = Offset(cx, cy))
             }
             val rawLabel = if (box.affectedComponent != null) box.label + " → " + box.affectedComponent else box.label
-            val label = rawLabel.take(42).let { if (rawLabel.length > 42) it.dropLast(1) + "…" else it }
-            val labelWidth = (textPaint.measureText(label)+16f).coerceAtMost(size.width - 12f)
-            placeLabel(label, left, top, labelWidth, 26f, color, textPaint, above = true)
+            // Keep live labels short. The result card carries the full reason
+            // and checklist, while the camera overlay only identifies the box.
+            val label = rawLabel.take(28).let { if (rawLabel.length > 28) it.dropLast(1) + "…" else it }
+            textPaint.textSize = (size.width / 34f).coerceIn(11f, 15f)
+            val labelWidth = (textPaint.measureText(label)+16f).coerceAtMost(size.width * .62f)
+            placeLabel(label, left, top, labelWidth, 24f, color, textPaint, above = true)
         }
     }
 }
